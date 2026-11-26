@@ -440,17 +440,6 @@
     }
     return badge;
   }
-  function rollbackBadge(label) {
-    const badge = document.createElement("span");
-    badge.className = "status-badge is-rollback-affected";
-    badge.setAttribute("aria-label", label);
-    const marker = document.createElement("span");
-    marker.className = "status-marker";
-    marker.setAttribute("aria-hidden", "true");
-    marker.textContent = "\u21BA";
-    badge.append(marker, document.createTextNode(label));
-    return badge;
-  }
   function statusLegend(labels) {
     const legend = document.createElement("div");
     legend.className = "status-legend";
@@ -458,7 +447,7 @@
     for (const state of statusOrder) legend.append(statusBadge(state, labels[state]));
     const note = document.createElement("span");
     note.className = "status-legend-note";
-    note.append(rollbackBadge("\u53D7\u56DE\u9000\u5F71\u54CD"));
+    note.textContent = "\u21BA \u53D7\u56DE\u9000\u5F71\u54CD\uFF08\u53E0\u52A0\u5728\u4EFB\u52A1\u72B6\u6001\u4E0A\uFF09";
     legend.append(note);
     return legend;
   }
