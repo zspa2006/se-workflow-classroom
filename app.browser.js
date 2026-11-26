@@ -440,6 +440,17 @@
     }
     return badge;
   }
+  function statusLegend(labels) {
+    const legend = document.createElement("div");
+    legend.className = "status-legend";
+    legend.setAttribute("aria-label", "\u4EFB\u52A1\u72B6\u6001\u56FE\u4F8B");
+    for (const state of statusOrder) legend.append(statusBadge(state, labels[state]));
+    const note = document.createElement("span");
+    note.className = "status-legend-note";
+    note.append(statusBadge("done", "\u53D7\u56DE\u9000\u5F71\u54CD", { rollbackAffected: true }));
+    legend.append(note);
+    return legend;
+  }
   function rollbackAffectedIds(tasks, arrangement2, runtime, getTargets) {
     const targets = /* @__PURE__ */ new Set();
     for (const checkpoint of tasks) {
@@ -2071,17 +2082,45 @@
     node2.focus({ preventScroll: true });
   }
   function metrics() {
-    const items = [
-      [result.plan.requirements.length, "\u6761\u9700\u6C42"],
-      [result.plan.tasks.length, "\u9879\u4EFB\u52A1"],
-      [arrangement.edges.length, "\u6761\u4F9D\u8D56"],
-      [arrangement.rounds.length, "\u4E2A\u6279\u6B21"]
-    ];
-    byId("metrics").replaceChildren(...items.map(([value, label]) => {
+    const tasks = result.plan.tasks;
+    const runtime = monitor.getRuntime();
+    const counts = Object.fromEntries(Object.keys(stateLabels).map((state) => [state, 0]));
+    tasks.forEach((task) => counts[taskState(task.id, runtime, arrangement)]++);
+    const statusCard = element("div", "", "metric metric-status");
+    statusCard.append(element("strong", tasks.length), element("span", "\u4EFB\u52A1\u72B6\u6001\u5206\u5E03", "metric-label"));
+    const stack = element("div", "", "metric-stack");
+    stack.setAttribute("role", "img");
+    stack.setAttribute("aria-label", Object.keys(stateLabels).map((state) => stateLabels[state] + " " + counts[state] + " \u9879").join("\uFF0C"));
+    for (const state of Object.keys(stateLabels)) {
+      if (!counts[state]) continue;
+      const segment = element("span", "", "metric-segment status-" + state);
+      segment.style.flex = counts[state];
+      segment.title = stateLabels[state] + " " + counts[state] + " \u9879";
+      stack.append(segment);
+    }
+    statusCard.append(stack, element("span", Object.keys(stateLabels).map((state) => stateLabels[state] + " " + counts[state]).join(" \xB7 "), "metric-detail"));
+    const requirementLinks = new Set(tasks.flatMap((task) => task.requirements));
+    const tested = tasks.filter((task) => task.test || task.review).length;
+    const parallelTasks = arrangement.rounds.filter((batch) => batch.length > 1).flat().length;
+    const proportionCard = (value, total, label) => {
       const card = element("div", "", "metric");
-      card.append(element("strong", value), label);
+      const percent = total ? Math.round(value / total * 100) : 0;
+      card.append(element("strong", percent + "%"), element("span", label, "metric-label"));
+      const bar = element("span", "", "metric-bar");
+      bar.append(element("span", "", "metric-fill"));
+      bar.firstElementChild.style.width = percent + "%";
+      bar.setAttribute("role", "img");
+      bar.setAttribute("aria-label", value + " / " + total);
+      card.append(bar, element("span", value + " / " + total, "metric-detail"));
       return card;
-    }));
+    };
+    byId("metrics").replaceChildren(
+      statusCard,
+      proportionCard(requirementLinks.size, result.plan.requirements.length, "\u9700\u6C42\u5DF2\u5173\u8054"),
+      proportionCard(parallelTasks, tasks.length, "\u4EFB\u52A1\u5904\u4E8E\u5E76\u884C\u6279\u6B21"),
+      proportionCard(tested, tasks.length, "\u4EFB\u52A1\u7ED1\u5B9A\u6D4B\u8BD5\u6216\u8BC4\u5BA1"),
+      statusLegend(stateLabels)
+    );
   }
   function caseInstructions(test) {
     const list = element("ol", "", "test-steps");

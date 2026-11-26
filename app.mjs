@@ -552,17 +552,42 @@ function locateGraphTask(id) {
 }
 
 function metrics() {
-  const items = [
-    [result.plan.requirements.length, '条需求'],
-    [result.plan.tasks.length, '项任务'],
-    [arrangement.edges.length, '条依赖'],
-    [arrangement.rounds.length, '个批次'],
-  ];
-  byId('metrics').replaceChildren(...items.map(([value, label]) => {
+  const tasks = result.plan.tasks;
+  const runtime = monitor.getRuntime();
+  const counts = Object.fromEntries(Object.keys(stateLabels).map(state => [state, 0]));
+  tasks.forEach(task => counts[taskState(task.id, runtime, arrangement)]++);
+  const statusCard = element('div', '', 'metric metric-status');
+  statusCard.append(element('strong', tasks.length), element('span', '任务状态分布', 'metric-label'));
+  const stack = element('div', '', 'metric-stack');
+  stack.setAttribute('role', 'img');
+  stack.setAttribute('aria-label', Object.keys(stateLabels).map(state => stateLabels[state] + ' ' + counts[state] + ' 项').join('，'));
+  for (const state of Object.keys(stateLabels)) {
+    if (!counts[state]) continue;
+    const segment = element('span', '', 'metric-segment status-' + state);
+    segment.style.flex = counts[state];
+    segment.title = stateLabels[state] + ' ' + counts[state] + ' 项';
+    stack.append(segment);
+  }
+  statusCard.append(stack, element('span', Object.keys(stateLabels).map(state => stateLabels[state] + ' ' + counts[state]).join(' · '), 'metric-detail'));
+  const requirementLinks = new Set(tasks.flatMap(task => task.requirements));
+  const tested = tasks.filter(task => task.test || task.review).length;
+  const parallelTasks = arrangement.rounds.filter(batch => batch.length > 1).flat().length;
+  const proportionCard = (value, total, label) => {
     const card = element('div', '', 'metric');
-    card.append(element('strong', value), label);
+    const percent = total ? Math.round(value / total * 100) : 0;
+    card.append(element('strong', percent + '%'), element('span', label, 'metric-label'));
+    const bar = element('span', '', 'metric-bar');
+    bar.append(element('span', '', 'metric-fill'));
+    bar.firstElementChild.style.width = percent + '%';
+    bar.setAttribute('role', 'img');
+    bar.setAttribute('aria-label', value + ' / ' + total);
+    card.append(bar, element('span', value + ' / ' + total, 'metric-detail'));
     return card;
-  }));
+  };
+  byId('metrics').replaceChildren(statusCard,
+    proportionCard(requirementLinks.size, result.plan.requirements.length, '需求已关联'),
+    proportionCard(parallelTasks, tasks.length, '任务处于并行批次'),
+    proportionCard(tested, tasks.length, '任务绑定测试或评审'), statusLegend(stateLabels));
 }
 
 function caseInstructions(test) {
