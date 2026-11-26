@@ -492,7 +492,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       const inFlight = pendingAgents.has(task.id);
       const stateLine = node('p', '', 'execution-status');
       stateLine.append(statusBadge(state, stateLabels[state], {rollbackAffected: affected.has(task.id)}),
-        node('span', ' · ' + agent.name + ' · ' + taskStage(task) + ' · ' + (inFlight ? 'Agent 生成中' : '') +
+        node('span', ' · ' + agent.name + ' · ' + taskStage(task) + (inFlight ? ' · Agent 生成中' : '') +
           ' · 尝试 ' + (runtime[task.id]?.attempts || 0) + ' 次'));
       card.append(node('h3', task.id + ' · ' + task.title), stateLine,
         node('p', agent.duty),

@@ -8,12 +8,31 @@ import { approvedHandoffs } from '../agents.mjs';
 import { recordEvent, getStructuredEvents, takeStructuredEvents, mergeStructuredEvents,
   restoreStructuredEvents, resetStructuredEvents, buildSummary,
   EVENT_TYPES, REASON_CODES, HUMAN_INTERVENTION_TYPES } from '../observability.mjs';
+import { rollbackAffectedIds } from '../status.mjs';
 
 const requirements = [{ id: 'R1', text: '展示并提交行程', acceptance: '拒绝无效行程' }];
 const plan = addTestTasks({ project: '行程分配 · 回退演示', requirements, tasks: [
   { id: 'T12', title: '实现行程时长校验', role: '后端', requirements: ['R1'], designs: [], inputs: [],
     output: 'validator', acceptance: '拒绝负数时长' },
 ] });
+
+test('rollbackAffectedIds marks the rolled-back target and transitive dependents only', () => {
+  const tasks = [{id: 'C'}, {id: 'T1'}, {id: 'T2'}, {id: 'T3'}, {id: 'U'}];
+  const arrangement = {
+    rounds: [['C'], ['T1'], ['T2'], ['T3'], ['U']],
+    dependencies: {C: [], T1: [], T2: ['T1'], T3: ['T2'], U: []},
+  };
+  const runtime = {
+    C: {status: 'failed'},
+    T1: {status: 'failed', attempts: 1, notes: [{action: 'rollback'}]},
+    T2: {status: 'pending', attempts: 1, notes: [{action: 'invalidated'}]},
+    T3: {status: 'pending', attempts: 0, notes: []},
+    U: {status: 'pending', attempts: 0, notes: []},
+  };
+  const affected = rollbackAffectedIds(tasks, arrangement, runtime,
+    task => task.id === 'C' ? ['T1'] : []);
+  assert.deepEqual([...affected], ['T1', 'T2', 'T3']);
+});
 
 function captureWarn(action) {
   const original = console.warn;

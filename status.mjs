@@ -1,6 +1,6 @@
 const statusOrder = ['pending', 'ready', 'running', 'waiting', 'failed', 'done'];
 const statusGlyphs = Object.freeze({
-  pending: '⋯', ready: '▶', running: '●', waiting: '✋', failed: '!', done: '✓',
+  pending: '⋯', ready: '▶', running: '●', waiting: '◷', failed: '!', done: '✓',
 });
 
 export function statusBadge(state, label, {rollbackAffected = false} = {}) {
@@ -24,6 +24,18 @@ export function statusBadge(state, label, {rollbackAffected = false} = {}) {
   return badge;
 }
 
+export function rollbackBadge(label) {
+  const badge = document.createElement('span');
+  badge.className = 'status-badge is-rollback-affected';
+  badge.setAttribute('aria-label', label);
+  const marker = document.createElement('span');
+  marker.className = 'status-marker';
+  marker.setAttribute('aria-hidden', 'true');
+  marker.textContent = '↺';
+  badge.append(marker, document.createTextNode(label));
+  return badge;
+}
+
 export function statusLegend(labels) {
   const legend = document.createElement('div');
   legend.className = 'status-legend';
@@ -31,7 +43,7 @@ export function statusLegend(labels) {
   for (const state of statusOrder) legend.append(statusBadge(state, labels[state]));
   const note = document.createElement('span');
   note.className = 'status-legend-note';
-  note.append(statusBadge('done', '受回退影响', {rollbackAffected: true}));
+  note.append(rollbackBadge('受回退影响'));
   legend.append(note);
   return legend;
 }

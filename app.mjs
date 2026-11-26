@@ -607,11 +607,11 @@ function taskCases(task) {
   });
 }
 
-function taskCard(task, full = false, interactive = false) {
+function taskCard(task, full = false, interactive = false, affectedIds = new Set()) {
   const card = element(interactive ? 'button' : 'article', '', 'task');
   const runtime = monitor.getRuntime();
   const state = taskState(task.id, runtime, arrangement);
-  const affected = rollbackAffectedIds(result.plan.tasks, arrangement, runtime, rollbackTargets).has(task.id);
+  const affected = affectedIds.has(task.id);
   
   if (interactive) {
     if (task.role === '前端') card.style.borderLeft = '4px solid #3498db';
@@ -718,7 +718,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
   });
 });
 
-function listTasks() {
+function listTasks(affectedIds) {
   const table = element('details');
   table.open = true;
   table.append(element('summary', '需求与验收 · ' + result.plan.requirements.length + ' 条已关联任务与测试'));
@@ -738,7 +738,7 @@ function listTasks() {
     matchStatus.textContent = (id ? id + ' 对应' : '全部') + ' ' + matches.length + ' 项任务';
     clear.hidden = !id;
     taskList.replaceChildren(...matches.map(task => {
-      const card = taskCard(task, true);
+      const card = taskCard(task, true, false, affectedIds);
       const locate = element('button', '在依赖图中查看', 'task-link');
       locate.type = 'button';
       locate.addEventListener('click', () => locateGraphTask(task.id));
@@ -771,13 +771,13 @@ function listTasks() {
   filter(requirementFilter);
 }
 
-function showRounds(tasksById) {
+function showRounds(tasksById, affectedIds) {
   view.append(element('p', '当前每批最多 ' + arrangement.capacity + ' 项。上一批全部完成后，下一批才开始。同批任务可并行。', 'hint'));
   arrangement.rounds.forEach((ids, index) => {
     const round = element('section', '', 'round');
     const tasks = element('div', '', 'task-list');
     const cards = ids.map(id => {
-      const card = taskCard(tasksById.get(id));
+      const card = taskCard(tasksById.get(id), false, false, affectedIds);
       card.append(element('p', '前置任务：' + (arrangement.dependencies[id].join('、') || '无')));
       return card;
     });
@@ -820,7 +820,7 @@ function spreadPorts(routes, endpoint, other, coordinate) {
   }
 }
 
-function showGraph(tasksById) {
+function showGraph(tasksById, affectedIds) {
   const vertical = graphLayout === 'vertical';
   const layouts = element('div', '', 'graph-layouts');
   layouts.setAttribute('aria-label', '依赖图布局');
@@ -976,7 +976,7 @@ function showGraph(tasksById) {
     const count = arrangement.edges.filter(edge => edge.from === id || edge.to === id).length;
     explanation.textContent = id + ' 的 ' + count + ' 条连线 · 蓝色为前置依赖，绿色指向后续任务。';
     const task = tasksById.get(id);
-    const card = taskCard(task, true);
+    const card = taskCard(task, true, false, affectedIds);
     const openExecution = element('button', '打开此节点的执行与交互', 'task-link');
     openExecution.type = 'button';
     openExecution.addEventListener('click', () => {
@@ -1033,7 +1033,7 @@ function showGraph(tasksById) {
     if (vertical && ids.length > 1) batchLabel.append(element('span', ids.length + ' 项可并行'));
     column.append(batchLabel);
     for (const id of ids) {
-      const button = taskCard(tasksById.get(id), false, true);
+      const button = taskCard(tasksById.get(id), false, true, affectedIds);
       button.id = 'node-' + id;
       button.type = 'button';
       button.setAttribute('aria-pressed', 'false');
@@ -1062,9 +1062,10 @@ function render() {
   view.replaceChildren();
   metrics();
   const tasks = new Map(result.plan.tasks.map(task => [task.id, task]));
-  if (active === 'tasks') listTasks();
-  if (active === 'graph') showGraph(tasks);
-  if (active === 'rounds') showRounds(tasks);
+  const affectedIds = rollbackAffectedIds(result.plan.tasks, arrangement, monitor.getRuntime(), rollbackTargets);
+  if (active === 'tasks') listTasks(affectedIds);
+  if (active === 'graph') showGraph(tasks, affectedIds);
+  if (active === 'rounds') showRounds(tasks, affectedIds);
   if (active === 'execution') monitor.renderExecution(view);
 }
 

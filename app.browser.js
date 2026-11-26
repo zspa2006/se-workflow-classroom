@@ -417,7 +417,7 @@
     pending: "\u22EF",
     ready: "\u25B6",
     running: "\u25CF",
-    waiting: "\u270B",
+    waiting: "\u25F7",
     failed: "!",
     done: "\u2713"
   });
@@ -440,6 +440,17 @@
     }
     return badge;
   }
+  function rollbackBadge(label) {
+    const badge = document.createElement("span");
+    badge.className = "status-badge is-rollback-affected";
+    badge.setAttribute("aria-label", label);
+    const marker = document.createElement("span");
+    marker.className = "status-marker";
+    marker.setAttribute("aria-hidden", "true");
+    marker.textContent = "\u21BA";
+    badge.append(marker, document.createTextNode(label));
+    return badge;
+  }
   function statusLegend(labels) {
     const legend = document.createElement("div");
     legend.className = "status-legend";
@@ -447,7 +458,7 @@
     for (const state of statusOrder) legend.append(statusBadge(state, labels[state]));
     const note = document.createElement("span");
     note.className = "status-legend-note";
-    note.append(statusBadge("done", "\u53D7\u56DE\u9000\u5F71\u54CD", { rollbackAffected: true }));
+    note.append(rollbackBadge("\u53D7\u56DE\u9000\u5F71\u54CD"));
     legend.append(note);
     return legend;
   }
@@ -998,7 +1009,7 @@
         const stateLine = node("p", "", "execution-status");
         stateLine.append(
           statusBadge(state, stateLabels[state], { rollbackAffected: affected.has(task.id) }),
-          node("span", " \xB7 " + agent.name + " \xB7 " + taskStage(task) + " \xB7 " + (inFlight ? "Agent \u751F\u6210\u4E2D" : "") + " \xB7 \u5C1D\u8BD5 " + (runtime[task.id]?.attempts || 0) + " \u6B21")
+          node("span", " \xB7 " + agent.name + " \xB7 " + taskStage(task) + (inFlight ? " \xB7 Agent \u751F\u6210\u4E2D" : "") + " \xB7 \u5C1D\u8BD5 " + (runtime[task.id]?.attempts || 0) + " \u6B21")
         );
         card.append(
           node("h3", task.id + " \xB7 " + task.title),
@@ -2137,11 +2148,11 @@
       return details;
     });
   }
-  function taskCard(task, full = false, interactive = false) {
+  function taskCard(task, full = false, interactive = false, affectedIds = /* @__PURE__ */ new Set()) {
     const card = element(interactive ? "button" : "article", "", "task");
     const runtime = monitor.getRuntime();
     const state = taskState(task.id, runtime, arrangement);
-    const affected = rollbackAffectedIds(result.plan.tasks, arrangement, runtime, rollbackTargets).has(task.id);
+    const affected = affectedIds.has(task.id);
     if (interactive) {
       if (task.role === "\u524D\u7AEF") card.style.borderLeft = "4px solid #3498db";
       if (task.role === "\u540E\u7AEF") card.style.borderLeft = "4px solid #e74c3c";
@@ -2227,7 +2238,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       overlay.remove();
     });
   });
-  function listTasks() {
+  function listTasks(affectedIds) {
     const table = element("details");
     table.open = true;
     table.append(element("summary", "\u9700\u6C42\u4E0E\u9A8C\u6536 \xB7 " + result.plan.requirements.length + " \u6761\u5DF2\u5173\u8054\u4EFB\u52A1\u4E0E\u6D4B\u8BD5"));
@@ -2246,7 +2257,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       matchStatus.textContent = (id ? id + " \u5BF9\u5E94" : "\u5168\u90E8") + " " + matches.length + " \u9879\u4EFB\u52A1";
       clear.hidden = !id;
       taskList.replaceChildren(...matches.map((task) => {
-        const card = taskCard(task, true);
+        const card = taskCard(task, true, false, affectedIds);
         const locate = element("button", "\u5728\u4F9D\u8D56\u56FE\u4E2D\u67E5\u770B", "task-link");
         locate.type = "button";
         locate.addEventListener("click", () => locateGraphTask(task.id));
@@ -2277,13 +2288,13 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     view.append(table, toolbar, taskList);
     filter(requirementFilter);
   }
-  function showRounds(tasksById) {
+  function showRounds(tasksById, affectedIds) {
     view.append(element("p", "\u5F53\u524D\u6BCF\u6279\u6700\u591A " + arrangement.capacity + " \u9879\u3002\u4E0A\u4E00\u6279\u5168\u90E8\u5B8C\u6210\u540E\uFF0C\u4E0B\u4E00\u6279\u624D\u5F00\u59CB\u3002\u540C\u6279\u4EFB\u52A1\u53EF\u5E76\u884C\u3002", "hint"));
     arrangement.rounds.forEach((ids, index) => {
       const round = element("section", "", "round");
       const tasks = element("div", "", "task-list");
       const cards = ids.map((id) => {
-        const card = taskCard(tasksById.get(id));
+        const card = taskCard(tasksById.get(id), false, false, affectedIds);
         card.append(element("p", "\u524D\u7F6E\u4EFB\u52A1\uFF1A" + (arrangement.dependencies[id].join("\u3001") || "\u65E0")));
         return card;
       });
@@ -2323,7 +2334,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       });
     }
   }
-  function showGraph(tasksById) {
+  function showGraph(tasksById, affectedIds) {
     const vertical = graphLayout === "vertical";
     const layouts = element("div", "", "graph-layouts");
     layouts.setAttribute("aria-label", "\u4F9D\u8D56\u56FE\u5E03\u5C40");
@@ -2479,7 +2490,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       const count = arrangement.edges.filter((edge) => edge.from === id || edge.to === id).length;
       explanation.textContent = id + " \u7684 " + count + " \u6761\u8FDE\u7EBF \xB7 \u84DD\u8272\u4E3A\u524D\u7F6E\u4F9D\u8D56\uFF0C\u7EFF\u8272\u6307\u5411\u540E\u7EED\u4EFB\u52A1\u3002";
       const task = tasksById.get(id);
-      const card = taskCard(task, true);
+      const card = taskCard(task, true, false, affectedIds);
       const openExecution = element("button", "\u6253\u5F00\u6B64\u8282\u70B9\u7684\u6267\u884C\u4E0E\u4EA4\u4E92", "task-link");
       openExecution.type = "button";
       openExecution.addEventListener("click", () => {
@@ -2536,7 +2547,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       if (vertical && ids.length > 1) batchLabel.append(element("span", ids.length + " \u9879\u53EF\u5E76\u884C"));
       column.append(batchLabel);
       for (const id of ids) {
-        const button2 = taskCard(tasksById.get(id), false, true);
+        const button2 = taskCard(tasksById.get(id), false, true, affectedIds);
         button2.id = "node-" + id;
         button2.type = "button";
         button2.setAttribute("aria-pressed", "false");
@@ -2564,9 +2575,10 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     view.replaceChildren();
     metrics();
     const tasks = new Map(result.plan.tasks.map((task) => [task.id, task]));
-    if (active === "tasks") listTasks();
-    if (active === "graph") showGraph(tasks);
-    if (active === "rounds") showRounds(tasks);
+    const affectedIds = rollbackAffectedIds(result.plan.tasks, arrangement, monitor.getRuntime(), rollbackTargets);
+    if (active === "tasks") listTasks(affectedIds);
+    if (active === "graph") showGraph(tasks, affectedIds);
+    if (active === "rounds") showRounds(tasks, affectedIds);
     if (active === "execution") monitor.renderExecution(view);
   }
   function edgeReason(edge, target) {
