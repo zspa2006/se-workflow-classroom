@@ -1,7 +1,8 @@
 import { examples } from './examples.mjs';
 import { schedule, taskStage, testLevelLabels } from './workflow.mjs';
 import { validateDesign, validateTaskLinks, validateTestPlan, designMarkdown, designFeedback } from './pipeline.mjs';
-import { createObservability } from './observability.mjs';
+import { createObservability, recordEvent, mergeStructuredEvents, getStructuredEvents, buildSummary,
+  restoreStructuredEvents, EVENT_TYPES, REASON_CODES } from './observability.mjs';
 import { rollbackScope, rollbackTargets } from './interaction.mjs';
 import { agentForTask, planningAgents } from './agents.mjs';
 
@@ -213,6 +214,7 @@ async function requestStage(endpoint, body, track = true) {
   const label = labels[endpoint] || endpoint;
   const started = performance.now();
   const agent = planningAgents[endpoint];
+  let received = false;
   if (track) monitor.log(label, '开始', '已提交 DeepSeek API 请求', {agent});
   try {
     const response = await fetch(apiBase + '/api/' + endpoint, {
@@ -221,6 +223,8 @@ async function requestStage(endpoint, body, track = true) {
     body: JSON.stringify({...body, apiKey: pageKey}),
     });
     const data = await response.json();
+    received = true;
+    mergeStructuredEvents(data.observability_events);
     if (!response.ok) throw new Error(data.error);
     if (track) {
       monitor.log(label, '完成', '产物通过结构校验，耗时 ' + ((performance.now()-started)/1000).toFixed(1) + ' 秒',
@@ -229,6 +233,11 @@ async function requestStage(endpoint, body, track = true) {
     }
     return data;
   } catch (error) {
+    if (!received) {
+      recordEvent({event_type: EVENT_TYPES.STAGE_START, stage: endpoint, actor: 'system'});
+      recordEvent({event_type: EVENT_TYPES.STAGE_FAIL, stage: endpoint, actor: 'system',
+        reason_code: REASON_CODES.NETWORK_ERROR});
+    }
     if (track) monitor.log(label, '失败', error.message, {agent});
     throw error;
   }
@@ -331,7 +340,8 @@ replay.addEventListener('change', async () => {
   if (!chosen) return;
   try {
     if (chosen.size > 1024 * 1024) throw new Error('结果文件最多 1 MB。');
-    const {provider, spec: source, plan, model, generatedAt, pipeline: chain, observation, testPlan} = JSON.parse(await chosen.text());
+    const {provider, spec: source, plan, model, generatedAt, pipeline: chain, observation, testPlan,
+      events: exportedEvents = []} = JSON.parse(await chosen.text());
     if (busy) return;
     const input = chain === undefined ? source : chain?.idea;
     if (provider !== 'deepseek' || typeof input !== 'string' || input.trim().length < 15 ||
@@ -356,6 +366,7 @@ replay.addEventListener('change', async () => {
     }
     const restoredArrangement = schedule(restoredPlan, Number(capacity.value));
     monitor.restore(observation, restoredPlan, restoredArrangement);
+    restoreStructuredEvents(exportedEvents);
     pipeline = chain;
     draft = undefined;
     inputMode.value = chain ? 'idea' : 'design';
@@ -1044,7 +1055,7 @@ function downloadFile(name, text, type) {
 byId('download').addEventListener('click', () => {
   const feedback = result.pipeline && designFeedback(result.pipeline.design, result.plan, arrangement);
   downloadFile('se-workflow.json', JSON.stringify({...result, arrangement, designFeedback: feedback,
-    observation: monitor.snapshot()}, null, 2),
+    observation: monitor.snapshot(), events: getStructuredEvents(), summary: buildSummary()}, null, 2),
     'application/json');
 });
 

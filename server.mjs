@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { getAsset, isSea } from 'node:sea';
@@ -6,6 +7,7 @@ import { roles, schedule, addTestTasks, serialImplementationChain } from './work
 import { validateRequirements, validateDesign, validateTaskLinks, validateTestPlan, assignTestCases, bindTestCases, bindTestTasks } from './pipeline.mjs';
 import { validateDiscussion } from './interaction.mjs';
 import { agentForTask, validateAgentOutput } from './agents.mjs';
+import { recordEvent, takeStructuredEvents, EVENT_TYPES, REASON_CODES } from './observability.mjs';
 
 const portable = isSea();
 const host = '127.0.0.1';
@@ -71,6 +73,14 @@ function apiError(status) {
   return messages[status] || (status >= 500
     ? 'DeepSeek API 暂时不可用，请稍后再试（HTTP ' + status + '）。'
     : 'DeepSeek API 请求失败（HTTP ' + status + '）。');
+}
+
+function reasonForServerError(error, timeout) {
+  if (timeout?.aborted) return REASON_CODES.API_TIMEOUT;
+  const message = String(error?.message || '');
+  if (/网络|连接|fetch|ENOTFOUND|ECONNREFUSED|ETIMEDOUT/i.test(message)) return REASON_CODES.NETWORK_ERROR;
+  if (error instanceof SyntaxError || /校验|JSON|格式|参数|缺少|无效|不存在/i.test(message)) return REASON_CODES.VALIDATION_FAIL;
+  return REASON_CODES.UNKNOWN;
 }
 
 async function generate(prompt, input, validate, apiKey, signal, maxTokens = 4200) {
@@ -259,6 +269,11 @@ const server = createServer(async (req, res) => {
     const controller = new AbortController();
     const timeout = AbortSignal.timeout(120000);
     res.on('close', () => controller.abort());
+    let stageKey = null;
+    let evidenceRef = null;
+    let stageStarted = false;
+    let stageSettled = false;
+    let stageFailed = false;
     try {
       let body = '';
       req.setEncoding('utf8');
@@ -285,19 +300,38 @@ const server = createServer(async (req, res) => {
       const apiKey = suppliedKey || (!fromFile && configuredKey);
       if (!apiKey) return json(res, 503, {error: '请点击右上角「DeepSeek 密钥」并填写密钥。'});
       const [key, prompt, content, validate] = stage(req.url, payload);
+      stageKey = key;
+      evidenceRef = 'sha256:' + createHash('sha256').update(body).digest('hex').slice(0, 24);
+      recordEvent({event_type: EVENT_TYPES.STAGE_START, stage: key, actor: 'system', evidence_ref: evidenceRef});
+      stageStarted = true;
       const result = await generate(prompt, content, validate, apiKey, AbortSignal.any([controller.signal, timeout]),
         key === 'testPlan' || key === 'agentOutput' ? 12000 : 4200);
       const artifacts = key === 'testPlan' ? result.value : {[key]: result.value};
+      recordEvent({event_type: EVENT_TYPES.STAGE_COMPLETE, stage: key, actor: 'system', evidence_ref: evidenceRef});
+      stageSettled = true;
       return json(res, 200, {...artifacts, model: result.model, validations: result.validations,
         provider: 'deepseek', mode: 'live',
-        generatedAt: new Date().toISOString()});
+        generatedAt: new Date().toISOString(), observability_events: takeStructuredEvents()});
     } catch (error) {
+      // 失败响应需要携带 STAGE_FAIL，因此先在此记录；finally 负责兜底未覆盖的路径。
+      if (!stageSettled && !stageFailed) {
+        recordEvent({event_type: EVENT_TYPES.STAGE_FAIL, stage: stageKey ?? req.url, actor: 'system',
+          reason_code: reasonForServerError(error, timeout), evidence_ref: evidenceRef});
+        stageFailed = true;
+      }
       if (!res.destroyed) {
-        if (timeout.aborted) return json(res, 504, {error: '等待 DeepSeek API 响应超时，请重试。'});
+        if (timeout.aborted) return json(res, 504, {error: '等待 DeepSeek API 响应超时，请重试。',
+          observability_events: takeStructuredEvents()});
         const message = error instanceof SyntaxError ? '请求 JSON 格式无效。' : error.message;
-        return json(res, error instanceof SyntaxError ? 400 : 422, {error: message});
+        return json(res, error instanceof SyntaxError ? 400 : 422, {error: message,
+          observability_events: takeStructuredEvents()});
       }
       return;
+    } finally {
+      if (stageStarted && !stageSettled && !stageFailed) {
+        recordEvent({event_type: EVENT_TYPES.STAGE_FAIL, stage: stageKey, actor: 'system',
+          reason_code: REASON_CODES.UNKNOWN, evidence_ref: evidenceRef});
+      }
     }
   }
   const file = req.method === 'GET' && files.get(req.url);

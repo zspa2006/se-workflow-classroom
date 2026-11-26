@@ -1,0 +1,1063 @@
+{
+  "provider": "deepseek",
+  "spec": "行程分配样例",
+  "plan": {
+    "project": "行程分配 · 回退演示",
+    "requirements": [
+      {
+        "id": "R1",
+        "text": "展示并提交行程",
+        "acceptance": "拒绝无效行程"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "T12",
+        "title": "实现行程时长校验",
+        "role": "后端",
+        "requirements": [
+          "R1"
+        ],
+        "designs": [],
+        "inputs": [],
+        "output": "validator",
+        "acceptance": "拒绝负数时长"
+      },
+      {
+        "id": "T1",
+        "output": "test_result_T1",
+        "title": "单元测试 · 实现行程时长校验",
+        "role": "测试",
+        "inputs": [
+          "validator"
+        ],
+        "acceptance": "隔离验证 T12 的行为，检查正常输入、边界和异常：拒绝负数时长",
+        "requirements": [
+          "R1"
+        ],
+        "test": {
+          "level": "unit",
+          "targets": [
+            "T12"
+          ]
+        }
+      },
+      {
+        "id": "T2",
+        "output": "review_result_T2",
+        "title": "代码评审 · 实现行程时长校验",
+        "role": "评审",
+        "inputs": [
+          "validator"
+        ],
+        "acceptance": "核对实现与设计契约、边界处理和可维护性；记录结论、证据及需修正的问题",
+        "requirements": [
+          "R1"
+        ],
+        "designs": [],
+        "review": {
+          "target": "T12"
+        }
+      },
+      {
+        "id": "T3",
+        "output": "test_result_T3",
+        "title": "端到端验收 · 全流程",
+        "role": "测试",
+        "inputs": [
+          "validator",
+          "test_result_T1",
+          "review_result_T2"
+        ],
+        "acceptance": "核对关键用户流程、业务异常、联调报告及各模块的评审结论",
+        "requirements": [
+          "R1"
+        ],
+        "test": {
+          "level": "e2e",
+          "targets": [
+            "T12"
+          ]
+        }
+      }
+    ]
+  },
+  "arrangement": {
+    "capacity": 4,
+    "rounds": [
+      [
+        "T12"
+      ],
+      [
+        "T1",
+        "T2"
+      ],
+      [
+        "T3"
+      ]
+    ],
+    "dependencies": {
+      "T12": [],
+      "T1": [
+        "T12"
+      ],
+      "T2": [
+        "T12"
+      ],
+      "T3": [
+        "T12",
+        "T1",
+        "T2"
+      ]
+    },
+    "edges": [
+      {
+        "from": "T12",
+        "to": "T1",
+        "artifact": "validator"
+      },
+      {
+        "from": "T12",
+        "to": "T2",
+        "artifact": "validator"
+      },
+      {
+        "from": "T12",
+        "to": "T3",
+        "artifact": "validator"
+      },
+      {
+        "from": "T1",
+        "to": "T3",
+        "artifact": "test_result_T1"
+      },
+      {
+        "from": "T2",
+        "to": "T3",
+        "artifact": "review_result_T2"
+      }
+    ]
+  },
+  "observation": {
+    "events": [
+      {
+        "stage": "旧事件",
+        "status": "完成",
+        "message": "保留原样",
+        "time": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "runtime": {
+      "T12": {
+        "status": "done",
+        "attempts": 2,
+        "notes": [
+          {
+            "action": "start",
+            "note": "开始执行",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "action": "complete",
+            "note": "记录结果",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "time": "2026-11-25T06:25:58.875Z",
+            "action": "rollback",
+            "note": "负数输入未被拒绝",
+            "test": "T3",
+            "target": "T12"
+          },
+          {
+            "action": "retry",
+            "note": "修正校验后重试",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "action": "complete",
+            "note": "新实现已交付",
+            "time": "2026-11-25T06:25:58.875Z"
+          }
+        ]
+      },
+      "T1": {
+        "status": "done",
+        "attempts": 2,
+        "notes": [
+          {
+            "action": "start",
+            "note": "开始执行",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "action": "complete",
+            "note": "记录结果",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "time": "2026-11-25T06:25:58.875Z",
+            "action": "invalidated",
+            "note": "负数输入未被拒绝",
+            "test": "T3",
+            "target": "T12"
+          },
+          {
+            "action": "start",
+            "note": "修复后重新执行",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "action": "complete",
+            "note": "重新验证通过",
+            "time": "2026-11-25T06:25:58.875Z"
+          }
+        ]
+      },
+      "T2": {
+        "status": "done",
+        "attempts": 2,
+        "notes": [
+          {
+            "action": "start",
+            "note": "开始执行",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "action": "complete",
+            "note": "记录结果",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "time": "2026-11-25T06:25:58.875Z",
+            "action": "invalidated",
+            "note": "负数输入未被拒绝",
+            "test": "T3",
+            "target": "T12"
+          },
+          {
+            "action": "start",
+            "note": "修复后重新执行",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "action": "complete",
+            "note": "重新验证通过",
+            "time": "2026-11-25T06:25:58.875Z"
+          }
+        ]
+      },
+      "T3": {
+        "status": "done",
+        "attempts": 2,
+        "notes": [
+          {
+            "action": "start",
+            "note": "开始执行",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "action": "fail",
+            "note": "记录结果",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "time": "2026-11-25T06:25:58.875Z",
+            "action": "invalidated",
+            "note": "负数输入未被拒绝",
+            "test": "T3",
+            "target": "T12"
+          },
+          {
+            "action": "start",
+            "note": "修复后重新执行",
+            "time": "2026-11-25T06:25:58.875Z"
+          },
+          {
+            "action": "complete",
+            "note": "重新验证通过",
+            "time": "2026-11-25T06:25:58.875Z"
+          }
+        ]
+      }
+    }
+  },
+  "events": [
+    {
+      "batch_id": null,
+      "entity_ref": null,
+      "r_id": null,
+      "d_id": null,
+      "t_id": null,
+      "tc_id": null,
+      "from_status": null,
+      "to_status": null,
+      "actor": "system",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "arrangement.rounds",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "BATCH_PLANNED",
+      "event_id": "evt_mwvqpk63_1_lmgxl",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": null,
+      "entity_ref": "TC1,TC2",
+      "r_id": null,
+      "d_id": null,
+      "t_id": null,
+      "tc_id": "TC1,TC2",
+      "from_status": null,
+      "to_status": null,
+      "actor": "system",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "pipeline.assignTestCases",
+      "payload_ref": null,
+      "affected_task_ids": [
+        "T1",
+        "T3"
+      ],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TEST_CASES_ASSIGNED",
+      "event_id": "evt_mwvqpk63_2_m7q7o",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": "ready",
+      "to_status": "running",
+      "actor": "agent",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T12.notes[0]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_3_fv859",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": "running",
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T12.notes[1]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_4_6cwfx",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T12.notes[1]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "DELIVERY_CONFIRMED",
+      "event_id": "evt_mwvqpk63_5_tfphi",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T1",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T1",
+      "tc_id": null,
+      "from_status": "ready",
+      "to_status": "running",
+      "actor": "agent",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T1.notes[0]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_6_rqme5",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T1",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T1",
+      "tc_id": null,
+      "from_status": "running",
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T1.notes[1]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_7_c4age",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T1",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T1",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T1.notes[1]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "DELIVERY_CONFIRMED",
+      "event_id": "evt_mwvqpk63_8_py4x3",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T2",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T2",
+      "tc_id": null,
+      "from_status": "ready",
+      "to_status": "running",
+      "actor": "agent",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T2.notes[0]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_9_2ltj4",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T2",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T2",
+      "tc_id": null,
+      "from_status": "running",
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T2.notes[1]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_a_cerb8",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T2",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T2",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T2.notes[1]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "DELIVERY_CONFIRMED",
+      "event_id": "evt_mwvqpk63_b_1e7h8",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B3",
+      "entity_ref": "T3",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T3",
+      "tc_id": null,
+      "from_status": "ready",
+      "to_status": "running",
+      "actor": "agent",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.notes[0]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_c_y0psj",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B3",
+      "entity_ref": "T3",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T3",
+      "tc_id": null,
+      "from_status": "running",
+      "to_status": "failed",
+      "actor": "human",
+      "reason_code": "TEST_ASSERTION_FAIL",
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.notes[1]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_d_pfsl3",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B3",
+      "entity_ref": "T3",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T3",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": null,
+      "actor": "human",
+      "reason_code": "TEST_ASSERTION_FAIL",
+      "attempt_number": 1,
+      "evidence_ref": "runtime.T3.notes[1]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [
+        "T",
+        "C",
+        "2"
+      ],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "ATTEMPT",
+      "event_id": "evt_mwvqpk63_e_uxi6y",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": null,
+      "actor": "human",
+      "reason_code": "TEST_ASSERTION_FAIL",
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.status",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "ROLLBACK_TARGET_SELECTED",
+      "event_id": "evt_mwvqpk63_f_us0oy",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": null,
+      "actor": "human",
+      "reason_code": "TEST_ASSERTION_FAIL",
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.status",
+      "payload_ref": null,
+      "affected_task_ids": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "ROLLBACK_PREVIEW",
+      "event_id": "evt_mwvqpk63_g_fsl77",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": null,
+      "actor": "human",
+      "reason_code": "TEST_ASSERTION_FAIL",
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.status",
+      "payload_ref": "runtime.T3.notes[0].note",
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": "ROLLBACK_DECISION",
+      "previous_attempt_ref": null,
+      "event_type": "HUMAN_INTERVENTION",
+      "event_id": "evt_mwvqpk63_h_p4s45",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": "done",
+      "to_status": "failed",
+      "actor": "human",
+      "reason_code": "TEST_ASSERTION_FAIL",
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.notes[2]",
+      "payload_ref": null,
+      "affected_task_ids": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "ROLLBACK_EXECUTED",
+      "event_id": "evt_mwvqpk63_i_7h9dz",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": "failed",
+      "to_status": "running",
+      "actor": "agent",
+      "reason_code": "HUMAN_REJECTED",
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T12.notes[3]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_j_i6cxr",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": null,
+      "actor": "human",
+      "reason_code": "HUMAN_REJECTED",
+      "attempt_number": 2,
+      "evidence_ref": "runtime.T12.notes[3]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": "evt_mwvqpk63_e_uxi6y",
+      "event_type": "ATTEMPT",
+      "event_id": "evt_mwvqpk63_k_ycazg",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": "running",
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T12.notes[4]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_l_r222q",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B1",
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T12.notes[4]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "DELIVERY_CONFIRMED",
+      "event_id": "evt_mwvqpk63_m_448gp",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T1",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T1",
+      "tc_id": null,
+      "from_status": "ready",
+      "to_status": "running",
+      "actor": "agent",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T1.notes[3]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_n_73jpx",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T1",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T1",
+      "tc_id": null,
+      "from_status": "running",
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T1.notes[4]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_o_ztxvw",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T1",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T1",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T1.notes[4]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "DELIVERY_CONFIRMED",
+      "event_id": "evt_mwvqpk63_p_yr9xg",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T2",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T2",
+      "tc_id": null,
+      "from_status": "ready",
+      "to_status": "running",
+      "actor": "agent",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T2.notes[3]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_q_gtvo4",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T2",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T2",
+      "tc_id": null,
+      "from_status": "running",
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T2.notes[4]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_r_nyk89",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B2",
+      "entity_ref": "T2",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T2",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T2.notes[4]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "DELIVERY_CONFIRMED",
+      "event_id": "evt_mwvqpk63_s_z3tjl",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B3",
+      "entity_ref": "T3",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T3",
+      "tc_id": null,
+      "from_status": "ready",
+      "to_status": "running",
+      "actor": "agent",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.notes[3]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_t_zq59q",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B3",
+      "entity_ref": "T3",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T3",
+      "tc_id": null,
+      "from_status": "running",
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.notes[4]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "TASK_STATUS_CHANGE",
+      "event_id": "evt_mwvqpk63_u_q7pil",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": "B3",
+      "entity_ref": "T3",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T3",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": "done",
+      "actor": "human",
+      "reason_code": null,
+      "attempt_number": 0,
+      "evidence_ref": "runtime.T3.notes[4]",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "DELIVERY_CONFIRMED",
+      "event_id": "evt_mwvqpk63_v_qh6da",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    },
+    {
+      "batch_id": null,
+      "entity_ref": "T12",
+      "r_id": null,
+      "d_id": null,
+      "t_id": "T12",
+      "tc_id": null,
+      "from_status": null,
+      "to_status": "done",
+      "actor": "agent",
+      "reason_code": null,
+      "attempt_number": 2,
+      "evidence_ref": "runtime.T12.notes",
+      "payload_ref": null,
+      "affected_task_ids": [],
+      "failed_tc_ids": [],
+      "batch_ids": [],
+      "subtype": null,
+      "previous_attempt_ref": null,
+      "event_type": "HANDOFF",
+      "event_id": "evt_mwvqpk63_w_1gung",
+      "timestamp": "2026-11-25T06:25:58.875Z"
+    }
+  ],
+  "summary": {
+    "total_rollbacks": 1,
+    "rollbacks_by_reason": {
+      "TEST_ASSERTION_FAIL": 1
+    },
+    "attempts_per_task": {
+      "T3": 1,
+      "T12": 1
+    },
+    "human_interventions_by_type": {
+      "ROLLBACK_DECISION": 1
+    },
+    "batch_sequence": [
+      "B1",
+      "B2",
+      "B3",
+      "B1",
+      "B2",
+      "B3"
+    ]
+  }
+}

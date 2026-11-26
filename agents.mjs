@@ -1,3 +1,5 @@
+import { recordEvent, EVENT_TYPES } from './observability.mjs';
+
 const roles = {
   '产品设计': {name:'设计 Agent', duty:'梳理接口、数据结构、约束和异常，交付可供下游实现的契约文档。'},
   '前端': {name:'前端开发 Agent', duty:'按设计和前置契约编写前端代码，覆盖交互、错误反馈和边界。'},
@@ -47,11 +49,19 @@ export function currentAgentOutput(record) {
 }
 
 export function approvedHandoffs(ids, runtime) {
-  return ids.map(id => {
+  const handoffs = ids.map(id => {
     const record = runtime[id];
     if (record?.status !== 'done') throw new Error(id + ' 尚未确认交付');
     const delivered = currentAgentOutput(record);
     const note = record.notes.findLast(item => item.action === 'complete')?.note ?? '';
     return {id, note, artifacts: delivered?.artifacts ?? []};
   });
+  // 节点交接记录点：所有前置校验通过后才记录，产物仅以路径引用。
+  for (const handoff of handoffs) {
+    recordEvent({event_type: EVENT_TYPES.HANDOFF, entity_ref: handoff.id, t_id: handoff.id,
+      to_status: 'done', attempt_number: runtime[handoff.id].attempts, actor: 'agent',
+      evidence_ref: handoff.artifacts.length ? handoff.artifacts.map(file => file.path).join('|')
+        : 'runtime.' + handoff.id + '.notes'});
+  }
+  return handoffs;
 }

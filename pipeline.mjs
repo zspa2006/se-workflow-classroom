@@ -1,3 +1,5 @@
+import { recordEvent, registerTaskCases, EVENT_TYPES } from './observability.mjs';
+
 function check(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -64,10 +66,17 @@ export function validateTaskLinks(plan, design) {
 
 export function assignTestCases(design, plan) {
   const testers = plan.tasks.filter(task => task.role === '测试');
-  return testers.map((task, index) => ({
+  const assignments = testers.map((task, index) => ({
     id: 'TC' + (index + 1), task: task.id, requirements: task.requirements,
     ...(design ? {design: task.designs[0], designs: task.designs} : {}),
   }));
+  // TC→T 登记记录点：供 ATTEMPT 的 failed_tc_ids 使用。
+  for (const item of assignments) registerTaskCases(item.task, item.id);
+  recordEvent({event_type: EVENT_TYPES.TEST_CASES_ASSIGNED,
+    entity_ref: assignments.map(item => item.id).join(','), affected_task_ids: assignments.map(item => item.task),
+    tc_id: assignments.map(item => item.id).join(','),
+    evidence_ref: 'pipeline.assignTestCases', actor: 'system'});
+  return assignments;
 }
 
 export function bindTestCases(value, assignments) {

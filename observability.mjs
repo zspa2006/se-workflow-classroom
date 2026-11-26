@@ -4,6 +4,170 @@ import {agentForTask, approvedHandoffs, currentAgentOutput, validateAgentOutput}
 import {stanceLabels, discussionParticipants, acknowledgedAll, startConsensusRound,
   registerStance, confirmConsensus, validateConsensus} from './consensus.mjs';
 
+// ===== 结构化观测扩展：纯增量，既有 log 事件与导出字段保持原样 =====
+export const EVENT_TYPES = Object.freeze({
+  STAGE_START: 'STAGE_START', STAGE_COMPLETE: 'STAGE_COMPLETE', STAGE_FAIL: 'STAGE_FAIL',
+  TASK_STATUS_CHANGE: 'TASK_STATUS_CHANGE', ATTEMPT: 'ATTEMPT', DELIVERY_CONFIRMED: 'DELIVERY_CONFIRMED',
+  ROLLBACK_TARGET_SELECTED: 'ROLLBACK_TARGET_SELECTED', ROLLBACK_PREVIEW: 'ROLLBACK_PREVIEW',
+  ROLLBACK_EXECUTED: 'ROLLBACK_EXECUTED', HUMAN_INTERVENTION: 'HUMAN_INTERVENTION',
+  HANDOFF: 'HANDOFF', BATCH_PLANNED: 'BATCH_PLANNED', TEST_CASES_ASSIGNED: 'TEST_CASES_ASSIGNED',
+});
+export const REASON_CODES = Object.freeze({
+  TEST_ASSERTION_FAIL: 'TEST_ASSERTION_FAIL', DESIGN_CONFLICT: 'DESIGN_CONFLICT',
+  MISSING_DEPENDENCY: 'MISSING_DEPENDENCY', HUMAN_REJECTED: 'HUMAN_REJECTED',
+  API_TIMEOUT: 'API_TIMEOUT', VALIDATION_FAIL: 'VALIDATION_FAIL',
+  NETWORK_ERROR: 'NETWORK_ERROR', UNKNOWN: 'UNKNOWN',
+});
+export const HUMAN_INTERVENTION_TYPES = Object.freeze({
+  FIELD_CLARIFICATION: 'FIELD_CLARIFICATION', ROLLBACK_DECISION: 'ROLLBACK_DECISION',
+});
+// 新字段全部可选并带默认值：旧事件、旧 JSON 缺字段时按默认值处理。
+const EVENT_DEFAULTS = Object.freeze({
+  batch_id: null, entity_ref: null, r_id: null, d_id: null, t_id: null, tc_id: null,
+  from_status: null, to_status: null, actor: 'system', reason_code: null,
+  attempt_number: 0, evidence_ref: null, payload_ref: null,
+  affected_task_ids: [], failed_tc_ids: [], batch_ids: [], subtype: null,
+  previous_attempt_ref: null,
+});
+const BODY_KEYS = ['content', 'prompt', 'response', 'messages', 'transcript', 'input', 'output', 'source'];
+const ALLOWED_EVENT_TYPES = new Set(Object.values(EVENT_TYPES));
+const ALLOWED_REASON_CODES = new Set(Object.values(REASON_CODES));
+let structuredEvents = [];
+let eventSeq = 0;
+const taskCaseIndex = new Map();
+const taskMetaIndex = new Map();
+
+export function registerTaskCases(taskId, caseIds) {
+  taskCaseIndex.set(taskId, [...new Set(caseIds)]);
+}
+export function registerTaskMeta(taskId, meta) {
+  taskMetaIndex.set(taskId, {...meta});
+}
+export function taskCasesFor(taskId) {
+  return [...(taskCaseIndex.get(taskId) ?? [])];
+}
+export function reasonForTask(taskId) {
+  return taskMetaIndex.get(taskId)?.review ? REASON_CODES.HUMAN_REJECTED : REASON_CODES.TEST_ASSERTION_FAIL;
+}
+export function reasonForCheckpoint(checkpoint) {
+  if (checkpoint?.test) return REASON_CODES.TEST_ASSERTION_FAIL;
+  if (checkpoint?.review) return REASON_CODES.HUMAN_REJECTED;
+  return REASON_CODES.DESIGN_CONFLICT;
+}
+export function batchIdFor(taskId, arrangement) {
+  const index = arrangement?.rounds?.findIndex(batch => batch.includes(taskId)) ?? -1;
+  return index < 0 ? null : 'B' + (index + 1);
+}
+export function lastEventRef(eventType, entityRef) {
+  let latestAny = null;
+  for (let index = structuredEvents.length - 1; index >= 0; index--) {
+    const event = structuredEvents[index];
+    if (event.event_type !== eventType) continue;
+    if (event.entity_ref === entityRef || event.t_id === entityRef) return event.event_id;
+    if (!latestAny) latestAny = event.event_id;
+  }
+  // 回退后的修复重试多由另一节点（测试/评审）失败触发，退而引用最近一次尝试。
+  return latestAny;
+}
+
+// 统一记录函数：浅拷贝入参、补默认值/event_id/timestamp；软校验只 warn；内部异常绝不外抛。
+export function recordEvent(partial = {}) {
+  try {
+    const source = partial && typeof partial === 'object' ? partial : {};
+    const event = {...EVENT_DEFAULTS, ...source};
+    for (const key of BODY_KEYS) {
+      if (Object.hasOwn(event, key)) {
+        delete event[key];
+        console.warn('[observability] 已剔除正文键（仅保留引用）：' + key);
+      }
+    }
+    event.event_id = source.event_id || 'evt_' + Date.now().toString(36) + '_' + (++eventSeq).toString(36) +
+      '_' + Math.random().toString(36).slice(2, 7);
+    event.timestamp = source.timestamp || new Date().toISOString();
+    if (source.event_type !== undefined && !ALLOWED_EVENT_TYPES.has(source.event_type)) {
+      console.warn('[observability] 未知 event_type（仅告警）：' + source.event_type);
+    }
+    if (event.reason_code !== null && !ALLOWED_REASON_CODES.has(event.reason_code)) {
+      console.warn('[observability] 未知 reason_code（仅告警）：' + event.reason_code);
+    }
+    structuredEvents.push(event);
+    return {...event};
+  } catch (error) {
+    console.warn('[observability] recordEvent 忽略异常：', error);
+    return undefined;
+  }
+}
+export function getStructuredEvents() {
+  return structuredEvents.map(event => ({...event}));
+}
+export function takeStructuredEvents() {
+  const drained = getStructuredEvents();
+  structuredEvents = [];
+  return drained;
+}
+export function mergeStructuredEvents(list) {
+  try {
+    if (!Array.isArray(list)) return 0;
+    let added = 0;
+    for (const event of list) {
+      if (!event || typeof event !== 'object' || typeof event.event_type !== 'string') continue;
+      structuredEvents.push({...EVENT_DEFAULTS, ...event});
+      added++;
+    }
+    return added;
+  } catch (error) {
+    console.warn('[observability] mergeStructuredEvents 忽略异常：', error);
+    return 0;
+  }
+}
+export function restoreStructuredEvents(list) {
+  if (!Array.isArray(list) || list.length > 10000 ||
+      list.some(event => !event || typeof event !== 'object' || typeof event.event_type !== 'string' ||
+        typeof event.event_id !== 'string' || typeof event.timestamp !== 'string')) {
+    throw new Error('结构化事件记录格式无效');
+  }
+  structuredEvents = list.map(event => ({...EVENT_DEFAULTS, ...event}));
+  return structuredEvents.length;
+}
+export function resetStructuredEvents() {
+  structuredEvents = [];
+  eventSeq = 0;
+  taskCaseIndex.clear();
+  taskMetaIndex.clear();
+}
+export function buildSummary(events = structuredEvents) {
+  const list = Array.isArray(events) ? events : [];
+  const rollbacks_by_reason = {};
+  const attempts_per_task = {};
+  const human_interventions_by_type = {};
+  const observedBatches = [];
+  const plannedBatches = [];
+  const appendBatch = (target, id) => { if (id && target.at(-1) !== id) target.push(id); };
+  const executionTypes = new Set([EVENT_TYPES.TASK_STATUS_CHANGE, EVENT_TYPES.ROLLBACK_EXECUTED,
+    EVENT_TYPES.ATTEMPT, EVENT_TYPES.DELIVERY_CONFIRMED, EVENT_TYPES.HANDOFF]);
+  let total_rollbacks = 0;
+  for (const event of list) {
+    if (event.event_type === EVENT_TYPES.ROLLBACK_EXECUTED) {
+      total_rollbacks++;
+      const code = event.reason_code ?? REASON_CODES.UNKNOWN;
+      rollbacks_by_reason[code] = (rollbacks_by_reason[code] || 0) + 1;
+    } else if (event.event_type === EVENT_TYPES.ATTEMPT) {
+      const key = event.t_id || event.entity_ref || 'unknown';
+      attempts_per_task[key] = (attempts_per_task[key] || 0) + 1;
+    } else if (event.event_type === EVENT_TYPES.HUMAN_INTERVENTION) {
+      const key = event.subtype || 'UNKNOWN';
+      human_interventions_by_type[key] = (human_interventions_by_type[key] || 0) + 1;
+    } else if (event.event_type === EVENT_TYPES.BATCH_PLANNED) {
+      for (const id of event.batch_ids ?? []) appendBatch(plannedBatches, id);
+    }
+    // 保留批次切换而非去重，才能重建 B1 → B2 → B1 修复 → B2 重跑。
+    if (executionTypes.has(event.event_type)) appendBatch(observedBatches, event.batch_id);
+  }
+  const batch_sequence = observedBatches.length ? observedBatches : plannedBatches;
+  return {total_rollbacks, rollbacks_by_reason, attempts_per_task, human_interventions_by_type, batch_sequence};
+}
+// ===== 结构化观测扩展结束 =====
+
 const actionLabels = {start:'开始执行',complete:'确认交付',ask:'请求补充',answer:'提交答复',fail:'报告失败',retry:'人工重试'};
 actionLabels.rollback = '回退实现';
 actionLabels.invalidated = '交付需重验';
@@ -374,6 +538,11 @@ export function createObservability({request, ready, adopt, getResult, getArrang
               ? '已确认 ' + output.artifacts.map(file => file.path).join('、') : '');
             runtime[task.id] = transition(task.id, action, evidence, runtime, arrangement);
             log(task.id, actionLabels[action], evidence);
+            if (action === 'ask' || action === 'answer') recordEvent({event_type: EVENT_TYPES.HUMAN_INTERVENTION,
+              entity_ref: task.id, t_id: task.id, batch_id: batchIdFor(task.id, arrangement),
+              subtype: HUMAN_INTERVENTION_TYPES.FIELD_CLARIFICATION, actor: 'human',
+              payload_ref: 'runtime.' + task.id + '.notes[' + (runtime[task.id].notes.length - 1) + '].note',
+              evidence_ref: 'runtime.' + task.id + '.notes'});
             noteDrafts.delete(task.id);
             refreshExecution();
           } catch (issue) { error.textContent = issue.message; }
@@ -397,6 +566,11 @@ export function createObservability({request, ready, adopt, getResult, getArrang
               runtime = update.runtime;
               log(task.id, '回退到 ' + id, note.value.trim() + '。需重新验证：' + update.affected.join('、'),
                 {rollbackTarget: id, affected: update.affected});
+              recordEvent({event_type: EVENT_TYPES.HUMAN_INTERVENTION, entity_ref: id, t_id: id,
+                batch_id: batchIdFor(id, arrangement), subtype: HUMAN_INTERVENTION_TYPES.ROLLBACK_DECISION,
+                reason_code: reasonForCheckpoint(task), actor: 'human',
+                payload_ref: 'runtime.' + task.id + '.notes[' + (runtime[task.id].notes.length - 1) + '].note',
+                evidence_ref: 'runtime.' + task.id + '.status'});
               noteDrafts.delete(task.id);
               refreshExecution();
             } catch (issue) { error.textContent = issue.message; }
@@ -405,7 +579,18 @@ export function createObservability({request, ready, adopt, getResult, getArrang
             rollback.disabled = !targets.value;
             impact.textContent = targets.value ? '修复 ' + targets.value + ' 后重新验证 ' +
               rollbackScope(targets.value, arrangement).join('、') + '。' : '选定实现任务后可预览影响范围。';
+            if (targets.value) recordEvent({event_type: EVENT_TYPES.ROLLBACK_PREVIEW,
+              entity_ref: targets.value, t_id: targets.value, batch_id: batchIdFor(targets.value, arrangement),
+              affected_task_ids: rollbackScope(targets.value, arrangement),
+              reason_code: reasonForCheckpoint(task), actor: 'human',
+              evidence_ref: 'runtime.' + task.id + '.status'});
           };
+          targets.addEventListener('change', () => {
+            if (targets.value) recordEvent({event_type: EVENT_TYPES.ROLLBACK_TARGET_SELECTED,
+              entity_ref: targets.value, t_id: targets.value, batch_id: batchIdFor(targets.value, arrangement),
+              actor: 'human', reason_code: reasonForCheckpoint(task),
+              evidence_ref: 'runtime.' + task.id + '.status'});
+          });
           targets.addEventListener('change', showImpact);
           showImpact();
           card.append(targetLabel, impact);
@@ -450,7 +635,8 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     download('task.md', lines.join('\n'), 'text/markdown;charset=utf-8');
   });
   document.getElementById('export-activity').addEventListener('click', () => {
-    download('运行与交互记录.json', JSON.stringify({events, runtime, discussion},null,2), 'application/json');
+    download('运行与交互记录.json', JSON.stringify({events, runtime, discussion,
+      structured_events: getStructuredEvents(), summary: buildSummary()},null,2), 'application/json');
   });
   return {
     log, renderExecution,

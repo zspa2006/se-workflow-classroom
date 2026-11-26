@@ -1,4 +1,6 @@
 import { currentAgentOutput, validateAgentOutput } from './agents.mjs';
+import { recordEvent, EVENT_TYPES, REASON_CODES, batchIdFor, reasonForTask, reasonForCheckpoint,
+  taskCasesFor, lastEventRef } from './observability.mjs';
 
 export const stateLabels = {
   pending: '等待前置', ready: '可开始', running: '执行中', waiting: '等待人工补充',
@@ -25,6 +27,25 @@ export function transition(id, action, note, runtime, arrangement) {
   const verdict = currentAgentOutput(record)?.verdict;
   if (action === 'complete' && verdict && verdict !== 'pass') {
     throw new Error('评审尚未通过，请补充证据或记录返工');
+  }
+  // 状态变更记录点：校验全部通过后写入，旧值 state → 新值 next[action] 成对记录。
+  const attemptNumber = record.attempts + Number(action === 'start' || action === 'retry');
+  const noteRef = 'runtime.' + id + '.notes[' + record.notes.length + ']';
+  recordEvent({event_type: EVENT_TYPES.TASK_STATUS_CHANGE, entity_ref: id, t_id: id,
+    from_status: state, to_status: next[action], batch_id: batchIdFor(id, arrangement),
+    actor: ['start', 'retry'].includes(action) ? 'agent' : 'human',
+    reason_code: action === 'fail' ? reasonForTask(id) : action === 'retry' ? REASON_CODES.HUMAN_REJECTED : null,
+    evidence_ref: noteRef});
+  if (action === 'fail' || action === 'retry') {
+    // attempt_number 读取既有计数表达式，不新增计数器。
+    recordEvent({event_type: EVENT_TYPES.ATTEMPT, entity_ref: id, t_id: id,
+      batch_id: batchIdFor(id, arrangement), attempt_number: attemptNumber,
+      failed_tc_ids: taskCasesFor(id), reason_code: action === 'fail' ? reasonForTask(id) : REASON_CODES.HUMAN_REJECTED,
+      previous_attempt_ref: lastEventRef(EVENT_TYPES.ATTEMPT, id), actor: 'human', evidence_ref: noteRef});
+  }
+  if (action === 'complete') {
+    recordEvent({event_type: EVENT_TYPES.DELIVERY_CONFIRMED, entity_ref: id, t_id: id,
+      batch_id: batchIdFor(id, arrangement), to_status: 'done', actor: 'human', evidence_ref: noteRef});
   }
   return {...record, status: next[action], attempts: record.attempts + Number(action === 'start' || action === 'retry'),
     notes: [...record.notes, {action, note: note.trim(), time: new Date().toISOString()}]};
@@ -65,6 +86,11 @@ export function rollbackTask(checkpoint, target, note, runtime, arrangement) {
   for (const id of affected) {
     if (runtime[id]) mark(id, 'pending', 'invalidated');
   }
+  // 回退执行记录点：状态全部更新完成后写入。
+  recordEvent({event_type: EVENT_TYPES.ROLLBACK_EXECUTED, entity_ref: target, t_id: target,
+    from_status: 'done', to_status: 'failed', batch_id: batchIdFor(target, arrangement),
+    actor: 'human', reason_code: reasonForCheckpoint(checkpoint), affected_task_ids: affected,
+    evidence_ref: 'runtime.' + checkpoint.id + '.notes[' + (runtime[checkpoint.id]?.notes.length ?? 0) + ']'});
   return {runtime: updated, affected};
 }
 

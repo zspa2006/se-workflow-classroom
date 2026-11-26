@@ -76,257 +76,8 @@
     }
   ];
 
-  // workflow.mjs
-  var roles = ["\u4EA7\u54C1\u8BBE\u8BA1", "\u524D\u7AEF", "\u540E\u7AEF", "\u6D4B\u8BD5", "\u8BC4\u5BA1"];
-  var testLevelLabels = { unit: "\u5355\u5143\u6D4B\u8BD5", integration: "\u8054\u8C03\u6D4B\u8BD5", e2e: "\u7AEF\u5230\u7AEF\u9A8C\u6536" };
-  var developmentRoles = /* @__PURE__ */ new Set(["\u524D\u7AEF", "\u540E\u7AEF"]);
-  var isImplementation = (task) => developmentRoles.has(task?.role) && task.kind !== "contract";
-  function taskStage(task) {
-    if (task.review) return "\u8BC4\u5BA1";
-    if (task.test) return testLevelLabels[task.test.level];
-    if (task.role === "\u6D4B\u8BD5") return "\u6D4B\u8BD5";
-    return isImplementation(task) ? "\u7F16\u7801" : "\u8BBE\u8BA1\u4E0E\u5951\u7EA6";
-  }
-  function check(condition, message) {
-    if (!condition) throw new Error(message);
-  }
-  function present(value) {
-    return typeof value === "string" && Boolean(value.trim());
-  }
-  function validate(plan) {
-    check(present(plan?.project), "\u7F3A\u5C11\u9879\u76EE\u540D\u79F0");
-    check(Array.isArray(plan.requirements) && plan.requirements.length > 0, "\u7F3A\u5C11\u9700\u6C42");
-    check(Array.isArray(plan.tasks) && plan.tasks.length >= 2 && plan.tasks.length <= 40, "\u4EFB\u52A1\u6570\u91CF\u5E94\u5728 2 \u81F3 40 \u4E4B\u95F4");
-    const requirements = /* @__PURE__ */ new Set();
-    for (const req of plan.requirements) {
-      check(/^R\d+$/.test(req.id) && !requirements.has(req.id) && present(req.text) && present(req.acceptance), "\u9700\u6C42\u7F16\u53F7\u91CD\u590D\u3001\u65E0\u6548\u6216\u7F3A\u5C11\u9A8C\u6536\u6807\u51C6");
-      requirements.add(req.id);
-    }
-    const tasksById = /* @__PURE__ */ new Map();
-    const covered = /* @__PURE__ */ new Set();
-    const tested = /* @__PURE__ */ new Set();
-    for (const task of plan.tasks) {
-      check(/^T\d+$/.test(task.id) && !tasksById.has(task.id), "\u4EFB\u52A1\u7F16\u53F7\u91CD\u590D\u6216\u65E0\u6548");
-      check(present(task.title) && present(task.acceptance) && roles.includes(task.role), task.id + " \u7F3A\u5C11\u4EFB\u52A1\u540D\u79F0\u3001\u89D2\u8272\u6216\u9A8C\u6536\u6807\u51C6");
-      check(Array.isArray(task.requirements) && task.requirements.length > 0 && task.requirements.every((id) => requirements.has(id)), task.id + " \u5F15\u7528\u4E86\u672A\u77E5\u9700\u6C42");
-      for (const id of task.requirements) {
-        if (task.role === "\u6D4B\u8BD5") tested.add(id);
-        else covered.add(id);
-      }
-      check(Array.isArray(task.inputs) && task.inputs.every(present) && present(task.output), task.id + " \u7684\u8F93\u5165\u6216\u4EA4\u4ED8\u7269\u65E0\u6548");
-      tasksById.set(task.id, task);
-    }
-    for (const task of plan.tasks) {
-      if (task.review !== void 0 || task.role === "\u8BC4\u5BA1") {
-        const target = tasksById.get(task.review?.target);
-        check(
-          task.role === "\u8BC4\u5BA1" && isImplementation(target) && task.inputs.includes(target.output),
-          task.id + " \u7684\u8BC4\u5BA1\u5FC5\u987B\u5173\u8054\u5BF9\u5E94\u7684\u7F16\u7801\u4EA4\u4ED8\u7269"
-        );
-      }
-      if (task.test === void 0) continue;
-      const { level, targets } = task.test ?? {};
-      check(task.role === "\u6D4B\u8BD5" && Object.hasOwn(testLevelLabels, level) && Array.isArray(targets) && new Set(targets).size === targets.length && targets.length >= (level === "integration" ? 2 : 1) && (level !== "unit" || targets.length === 1), task.id + " \u7684\u6D4B\u8BD5\u5C42\u6B21\u6216\u5B9E\u73B0\u76EE\u6807\u65E0\u6548");
-      check(targets.every((id) => {
-        const target = tasksById.get(id);
-        return isImplementation(target) && task.inputs.includes(target.output);
-      }), task.id + " \u5FC5\u987B\u4F9D\u8D56\u5176\u6D4B\u8BD5\u76EE\u6807\u7684\u5B9E\u73B0\u4EA4\u4ED8\u7269");
-      if (task.test.cases !== void 0) {
-        check(Array.isArray(task.test.cases) && task.test.cases.length > 0 && new Set(task.test.cases).size === task.test.cases.length && task.test.cases.every((id) => /^TC[1-9]\d*$/.test(id)), task.id + " \u7684\u6D4B\u8BD5\u7528\u4F8B\u7F16\u53F7\u65E0\u6548");
-      }
-    }
-    check([...requirements].every((id) => covered.has(id) && tested.has(id)), "\u6BCF\u6761\u9700\u6C42\u90FD\u5E94\u6709\u975E\u6D4B\u8BD5\u4EFB\u52A1\u548C\u6D4B\u8BD5\u4EFB\u52A1\u8986\u76D6");
-  }
-  function schedule(plan, capacity2) {
-    check(Number.isInteger(capacity2) && capacity2 >= 1 && capacity2 <= 8, "\u5E76\u884C\u4E0A\u9650\u987B\u5728 1 \u81F3 8 \u4E4B\u95F4");
-    validate(plan);
-    const producers = /* @__PURE__ */ new Map();
-    for (const task of plan.tasks) {
-      check(!producers.has(task.output), "\u4EA4\u4ED8\u7269\u6709\u591A\u4E2A\u751F\u4EA7\u4EFB\u52A1\uFF1A" + task.output);
-      producers.set(task.output, task.id);
-    }
-    const dependencies = {};
-    const edges = [];
-    for (const task of plan.tasks) {
-      dependencies[task.id] = [];
-      const inputs = new Set(task.inputs);
-      if (task.role === "\u6D4B\u8BD5" && !task.test) {
-        for (const implementation of plan.tasks) {
-          if (implementation.role !== "\u6D4B\u8BD5" && implementation.requirements.some((id) => task.requirements.includes(id))) {
-            inputs.add(implementation.output);
-          }
-        }
-      }
-      for (const input of inputs) {
-        const from = producers.get(input);
-        check(from, task.id + " \u7684\u8F93\u5165\u7F3A\u5C11\u751F\u4EA7\u4EFB\u52A1\uFF1A" + input);
-        check(from !== task.id, task.id + " \u4F9D\u8D56\u81EA\u5DF1\u7684\u4EA4\u4ED8\u7269");
-        dependencies[task.id].push(from);
-        edges.push({ from, to: task.id, artifact: input });
-      }
-    }
-    const completed = /* @__PURE__ */ new Set();
-    const rounds = [];
-    while (completed.size < plan.tasks.length) {
-      const ready = plan.tasks.filter((task) => !completed.has(task.id) && dependencies[task.id].every((id) => completed.has(id)));
-      check(ready.length > 0, "\u68C0\u6D4B\u5230\u5FAA\u73AF\u4F9D\u8D56\uFF0C\u5269\u4F59\u4EFB\u52A1\uFF1A" + plan.tasks.filter((task) => !completed.has(task.id)).map((task) => task.id).join("\u3001"));
-      const batch = ready.slice(0, capacity2).map((task) => task.id);
-      rounds.push(batch);
-      for (const id of batch) completed.add(id);
-    }
-    return { capacity: capacity2, rounds, dependencies, edges };
-  }
-
-  // pipeline.mjs
-  function check2(condition, message) {
-    if (!condition) throw new Error(message);
-  }
-  function text(value, limit = 500) {
-    return typeof value === "string" && value.trim() && value.length <= limit;
-  }
-  function entries(list, prefix, label, limit = 12) {
-    check2(Array.isArray(list) && list.length > 0 && list.length <= limit, label + "\u9700\u8981 1 \u81F3 " + limit + " \u4E2A\u6761\u76EE");
-    const ids = /* @__PURE__ */ new Set();
-    for (const item of list) {
-      check2(typeof item?.id === "string" && new RegExp("^" + prefix + "[1-9]\\d*$").test(item.id) && !ids.has(item.id), label + "\u6761\u76EE\u7F16\u53F7\u65E0\u6548\u6216\u91CD\u590D");
-      ids.add(item.id);
-    }
-    return ids;
-  }
-  function references(ids, available) {
-    return Array.isArray(ids) && ids.length > 0 && new Set(ids).size === ids.length && ids.every((id) => available.has(id));
-  }
-  function validateRequirements(document2) {
-    check2(text(document2?.project, 120) && text(document2.goal) && text(document2.scope), "\u9700\u6C42\u89C4\u683C\u7F3A\u5C11\u9879\u76EE\u540D\u79F0\u3001\u76EE\u6807\u6216\u8303\u56F4");
-    entries(document2.requirements, "R", "\u9700\u6C42\u89C4\u683C");
-    for (const req of document2.requirements) {
-      check2(text(req.text) && text(req.acceptance), req.id + " \u7F3A\u5C11\u9700\u6C42\u63CF\u8FF0\u6216\u53EF\u9A8C\u8BC1\u7684\u9A8C\u6536\u6761\u4EF6");
-    }
-  }
-  function validateDesign(design, requirements) {
-    validateRequirements(requirements);
-    check2(text(design?.summary, 1e3), "\u8BBE\u8BA1\u89C4\u683C\u7F3A\u5C11\u603B\u4F53\u8BBE\u8BA1");
-    entries(design.components, "D", "\u8BBE\u8BA1\u89C4\u683C");
-    const known = new Set(requirements.requirements.map((req) => req.id));
-    const covered = /* @__PURE__ */ new Set();
-    for (const part of design.components) {
-      check2(
-        text(part.title, 120) && text(part.design, 800) && text(part.contract, 600),
-        part.id + " \u7F3A\u5C11\u6A21\u5757\u540D\u79F0\u3001\u5B9E\u73B0\u8BBE\u8BA1\u6216\u63A5\u53E3\u4E0E\u6570\u636E\u7EA6\u5B9A"
-      );
-      check2(references(part.requirements, known), part.id + " \u5F15\u7528\u4E86\u4E0D\u5B58\u5728\u6216\u91CD\u590D\u7684\u9700\u6C42\u7F16\u53F7");
-      for (const id of part.requirements) covered.add(id);
-    }
-    check2(covered.size === known.size, "\u5B58\u5728\u5C1A\u672A\u5173\u8054\u8BBE\u8BA1\u6A21\u5757\u7684\u9700\u6C42");
-  }
-  function validateTaskLinks(plan, design) {
-    const components = new Map(design.components.map((part) => [part.id, part]));
-    const development = /* @__PURE__ */ new Set();
-    const tests = /* @__PURE__ */ new Set();
-    for (const task of plan.tasks) {
-      check2(references(task.designs, components), task.id + " \u9700\u8981\u5173\u8054\u6709\u6548\u7684\u8BBE\u8BA1\u7F16\u53F7");
-      const implied = new Set(task.designs.flatMap((id) => components.get(id).requirements));
-      check2(task.requirements.every((id) => implied.has(id)), task.id + " \u7684\u9700\u6C42\u7F16\u53F7\u8D85\u51FA\u5173\u8054\u8BBE\u8BA1\u8986\u76D6\u7684\u8303\u56F4");
-      check2(
-        task.designs.every((id) => components.get(id).requirements.some((req) => task.requirements.includes(req))),
-        task.id + " \u7684\u5173\u8054\u8BBE\u8BA1\u548C\u9700\u6C42\u9700\u8981\u6709\u4EA4\u96C6"
-      );
-      const target = task.role === "\u6D4B\u8BD5" ? tests : development;
-      for (const id of task.designs) target.add(id);
-    }
-    check2(
-      development.size === components.size && tests.size === components.size,
-      "\u6BCF\u9879\u8BBE\u8BA1\u90FD\u9700\u8981\u5F00\u53D1\u4EFB\u52A1\u548C\u9A8C\u6536\u6D4B\u8BD5"
-    );
-  }
-  function validateTestPlan(value, design, plan) {
-    check2(text(value?.strategy, 1e3), "\u6D4B\u8BD5\u65B9\u6848\u7F3A\u5C11\u8303\u56F4\u4E0E\u65B9\u6CD5");
-    entries(value.cases, "TC", "\u6D4B\u8BD5\u65B9\u6848", 48);
-    const designById = new Map((design?.components ?? []).map((part) => [part.id, part]));
-    const testers = new Map(plan.tasks.filter((task) => task.role === "\u6D4B\u8BD5").map((task) => [task.id, task]));
-    const coveredRequirements = /* @__PURE__ */ new Set();
-    const coveredDesigns = /* @__PURE__ */ new Set();
-    const coveredTasks = /* @__PURE__ */ new Set();
-    for (const test of value.cases) {
-      const task = testers.get(test.task);
-      const parts = test.designs ?? (test.design ? [test.design] : []);
-      check2(
-        task && (design ? references(parts, designById) && parts[0] === test.design && parts.every((id) => task.designs.includes(id)) : !parts.length && test.design === void 0),
-        test.id + " \u7684\u8BBE\u8BA1\u7F16\u53F7\u4E0E\u6D4B\u8BD5\u4EFB\u52A1\u4E0D\u5339\u914D"
-      );
-      const applicable = new Set(parts.flatMap((id) => designById.get(id).requirements));
-      check2(
-        references(test.requirements, new Set(task.requirements.filter((id) => !design || applicable.has(id)))) && parts.every((id) => designById.get(id).requirements.some((req) => test.requirements.includes(req))),
-        test.id + " \u5F15\u7528\u4E86\u4E0E\u8BBE\u8BA1\u6216\u6D4B\u8BD5\u4EFB\u52A1\u65E0\u5173\u7684\u9700\u6C42"
-      );
-      check2(
-        text(test.title, 120) && text(test.setup) && text(test.expected) && Array.isArray(test.steps) && test.steps.length > 0 && test.steps.length <= 10 && test.steps.every((step) => text(step, 300)),
-        test.id + " \u7F3A\u5C11\u6807\u9898\u3001\u524D\u7F6E\u6761\u4EF6\u3001\u53EF\u6267\u884C\u6B65\u9AA4\u6216\u9884\u671F\u7ED3\u679C"
-      );
-      test.requirements.forEach((id) => coveredRequirements.add(id));
-      parts.forEach((id) => coveredDesigns.add(id));
-      coveredTasks.add(task.id);
-    }
-    check2(plan.requirements.every((req) => coveredRequirements.has(req.id)), "\u5B58\u5728\u672A\u88AB\u7528\u4F8B\u8986\u76D6\u7684\u9700\u6C42");
-    check2(
-      coveredDesigns.size === designById.size && coveredTasks.size === testers.size,
-      "\u6BCF\u9879\u8BBE\u8BA1\u53CA\u6D4B\u8BD5\u4EFB\u52A1\u90FD\u9700\u8981\u5173\u8054\u6D4B\u8BD5\u7528\u4F8B"
-    );
-    for (const task of testers.values()) {
-      if (!task.test?.cases) continue;
-      const cases = value.cases.filter((test) => test.task === task.id);
-      const ids = cases.map((test) => test.id);
-      check2(
-        ids.length === task.test.cases.length && task.test.cases.every((id) => ids.includes(id)),
-        task.id + " \u7684\u7528\u4F8B\u6E05\u5355\u4E0E\u6D4B\u8BD5\u65B9\u6848\u4E0D\u4E00\u81F4"
-      );
-      const covered = new Set(cases.flatMap((test) => test.requirements));
-      check2(task.requirements.every((id) => covered.has(id)), task.id + " \u7684\u7528\u4F8B\u672A\u8986\u76D6\u4EFB\u52A1\u7684\u5168\u90E8\u9700\u6C42");
-    }
-  }
-  function designMarkdown(requirements, design) {
-    const lines = [
-      "# " + requirements.project + " \xB7 \u8BBE\u8BA1\u89C4\u683C",
-      "",
-      "## \u603B\u4F53\u8BBE\u8BA1",
-      "",
-      design.summary,
-      "",
-      "## \u6A21\u5757\u8BBE\u8BA1",
-      ""
-    ];
-    for (const part of design.components) {
-      lines.push(
-        "### " + part.id + " \xB7 " + part.title,
-        "",
-        "\u5173\u8054\u9700\u6C42\uFF1A" + part.requirements.join("\u3001"),
-        "",
-        part.design,
-        "",
-        "\u63A5\u53E3\u4E0E\u6570\u636E\u7EA6\u5B9A\uFF1A" + part.contract,
-        ""
-      );
-    }
-    return lines.join("\n");
-  }
-  function designFeedback(design, plan, arrangement2) {
-    const batchOf = new Map(arrangement2.rounds.flatMap((ids, index) => ids.map((id) => [id, index + 1])));
-    return design.components.map((part) => ({
-      ...part,
-      tasks: plan.tasks.filter((task) => task.designs.includes(part.id)).map((task) => ({
-        id: task.id,
-        title: task.title,
-        role: task.role,
-        batch: batchOf.get(task.id),
-        output: task.output,
-        acceptance: task.acceptance,
-        predecessors: arrangement2.dependencies[task.id]
-      }))
-    }));
-  }
-
   // agents.mjs
-  var roles2 = {
+  var roles = {
     "\u4EA7\u54C1\u8BBE\u8BA1": { name: "\u8BBE\u8BA1 Agent", duty: "\u68B3\u7406\u63A5\u53E3\u3001\u6570\u636E\u7ED3\u6784\u3001\u7EA6\u675F\u548C\u5F02\u5E38\uFF0C\u4EA4\u4ED8\u53EF\u4F9B\u4E0B\u6E38\u5B9E\u73B0\u7684\u5951\u7EA6\u6587\u6863\u3002" },
     "\u524D\u7AEF": { name: "\u524D\u7AEF\u5F00\u53D1 Agent", duty: "\u6309\u8BBE\u8BA1\u548C\u524D\u7F6E\u5951\u7EA6\u7F16\u5199\u524D\u7AEF\u4EE3\u7801\uFF0C\u8986\u76D6\u4EA4\u4E92\u3001\u9519\u8BEF\u53CD\u9988\u548C\u8FB9\u754C\u3002" },
     "\u540E\u7AEF": { name: "\u540E\u7AEF\u5F00\u53D1 Agent", duty: "\u6309\u8BBE\u8BA1\u548C\u524D\u7F6E\u5951\u7EA6\u7F16\u5199\u540E\u7AEF\u4EE3\u7801\uFF0C\u8986\u76D6\u6570\u636E\u6821\u9A8C\u3001\u63A5\u53E3\u548C\u5F02\u5E38\u884C\u4E3A\u3002" },
@@ -341,7 +92,7 @@
     "test-plan": "\u6D4B\u8BD5\u8BBE\u8BA1 Agent"
   };
   function agentForTask(task) {
-    return roles2[task.kind === "contract" && ["\u524D\u7AEF", "\u540E\u7AEF"].includes(task.role) ? "\u4EA7\u54C1\u8BBE\u8BA1" : task.role];
+    return roles[task.kind === "contract" && ["\u524D\u7AEF", "\u540E\u7AEF"].includes(task.role) ? "\u4EA7\u54C1\u8BBE\u8BA1" : task.role];
   }
   function validateAgentOutput(value, task) {
     if (typeof value?.summary !== "string" || !value.summary.trim() || value.summary.length > 1200 || !Array.isArray(value.artifacts) || !value.artifacts.length || value.artifacts.length > 4) {
@@ -370,13 +121,25 @@
     return record?.agentOutput && record.agentOutput.attempt === record.attempts ? record.agentOutput : void 0;
   }
   function approvedHandoffs(ids, runtime) {
-    return ids.map((id) => {
+    const handoffs = ids.map((id) => {
       const record = runtime[id];
       if (record?.status !== "done") throw new Error(id + " \u5C1A\u672A\u786E\u8BA4\u4EA4\u4ED8");
       const delivered = currentAgentOutput(record);
       const note = record.notes.findLast((item) => item.action === "complete")?.note ?? "";
       return { id, note, artifacts: delivered?.artifacts ?? [] };
     });
+    for (const handoff of handoffs) {
+      recordEvent({
+        event_type: EVENT_TYPES.HANDOFF,
+        entity_ref: handoff.id,
+        t_id: handoff.id,
+        to_status: "done",
+        attempt_number: runtime[handoff.id].attempts,
+        actor: "agent",
+        evidence_ref: handoff.artifacts.length ? handoff.artifacts.map((file2) => file2.path).join("|") : "runtime." + handoff.id + ".notes"
+      });
+    }
+    return handoffs;
   }
 
   // interaction.mjs
@@ -411,6 +174,44 @@
     const verdict = currentAgentOutput(record)?.verdict;
     if (action === "complete" && verdict && verdict !== "pass") {
       throw new Error("\u8BC4\u5BA1\u5C1A\u672A\u901A\u8FC7\uFF0C\u8BF7\u8865\u5145\u8BC1\u636E\u6216\u8BB0\u5F55\u8FD4\u5DE5");
+    }
+    const attemptNumber = record.attempts + Number(action === "start" || action === "retry");
+    const noteRef = "runtime." + id + ".notes[" + record.notes.length + "]";
+    recordEvent({
+      event_type: EVENT_TYPES.TASK_STATUS_CHANGE,
+      entity_ref: id,
+      t_id: id,
+      from_status: state,
+      to_status: next[action],
+      batch_id: batchIdFor(id, arrangement2),
+      actor: ["start", "retry"].includes(action) ? "agent" : "human",
+      reason_code: action === "fail" ? reasonForTask(id) : action === "retry" ? REASON_CODES.HUMAN_REJECTED : null,
+      evidence_ref: noteRef
+    });
+    if (action === "fail" || action === "retry") {
+      recordEvent({
+        event_type: EVENT_TYPES.ATTEMPT,
+        entity_ref: id,
+        t_id: id,
+        batch_id: batchIdFor(id, arrangement2),
+        attempt_number: attemptNumber,
+        failed_tc_ids: taskCasesFor(id),
+        reason_code: action === "fail" ? reasonForTask(id) : REASON_CODES.HUMAN_REJECTED,
+        previous_attempt_ref: lastEventRef(EVENT_TYPES.ATTEMPT, id),
+        actor: "human",
+        evidence_ref: noteRef
+      });
+    }
+    if (action === "complete") {
+      recordEvent({
+        event_type: EVENT_TYPES.DELIVERY_CONFIRMED,
+        entity_ref: id,
+        t_id: id,
+        batch_id: batchIdFor(id, arrangement2),
+        to_status: "done",
+        actor: "human",
+        evidence_ref: noteRef
+      });
     }
     return {
       ...record,
@@ -456,6 +257,18 @@
     for (const id of affected) {
       if (runtime[id]) mark(id, "pending", "invalidated");
     }
+    recordEvent({
+      event_type: EVENT_TYPES.ROLLBACK_EXECUTED,
+      entity_ref: target,
+      t_id: target,
+      from_status: "done",
+      to_status: "failed",
+      batch_id: batchIdFor(target, arrangement2),
+      actor: "human",
+      reason_code: reasonForCheckpoint(checkpoint),
+      affected_task_ids: affected,
+      evidence_ref: "runtime." + checkpoint.id + ".notes[" + (runtime[checkpoint.id]?.notes.length ?? 0) + "]"
+    });
     return { runtime: updated, affected };
   }
   function validateDiscussion(value, transcript) {
@@ -599,6 +412,177 @@
   }
 
   // observability.mjs
+  var EVENT_TYPES = Object.freeze({
+    STAGE_START: "STAGE_START",
+    STAGE_COMPLETE: "STAGE_COMPLETE",
+    STAGE_FAIL: "STAGE_FAIL",
+    TASK_STATUS_CHANGE: "TASK_STATUS_CHANGE",
+    ATTEMPT: "ATTEMPT",
+    DELIVERY_CONFIRMED: "DELIVERY_CONFIRMED",
+    ROLLBACK_TARGET_SELECTED: "ROLLBACK_TARGET_SELECTED",
+    ROLLBACK_PREVIEW: "ROLLBACK_PREVIEW",
+    ROLLBACK_EXECUTED: "ROLLBACK_EXECUTED",
+    HUMAN_INTERVENTION: "HUMAN_INTERVENTION",
+    HANDOFF: "HANDOFF",
+    BATCH_PLANNED: "BATCH_PLANNED",
+    TEST_CASES_ASSIGNED: "TEST_CASES_ASSIGNED"
+  });
+  var REASON_CODES = Object.freeze({
+    TEST_ASSERTION_FAIL: "TEST_ASSERTION_FAIL",
+    DESIGN_CONFLICT: "DESIGN_CONFLICT",
+    MISSING_DEPENDENCY: "MISSING_DEPENDENCY",
+    HUMAN_REJECTED: "HUMAN_REJECTED",
+    API_TIMEOUT: "API_TIMEOUT",
+    VALIDATION_FAIL: "VALIDATION_FAIL",
+    NETWORK_ERROR: "NETWORK_ERROR",
+    UNKNOWN: "UNKNOWN"
+  });
+  var HUMAN_INTERVENTION_TYPES = Object.freeze({
+    FIELD_CLARIFICATION: "FIELD_CLARIFICATION",
+    ROLLBACK_DECISION: "ROLLBACK_DECISION"
+  });
+  var EVENT_DEFAULTS = Object.freeze({
+    batch_id: null,
+    entity_ref: null,
+    r_id: null,
+    d_id: null,
+    t_id: null,
+    tc_id: null,
+    from_status: null,
+    to_status: null,
+    actor: "system",
+    reason_code: null,
+    attempt_number: 0,
+    evidence_ref: null,
+    payload_ref: null,
+    affected_task_ids: [],
+    failed_tc_ids: [],
+    batch_ids: [],
+    subtype: null,
+    previous_attempt_ref: null
+  });
+  var BODY_KEYS = ["content", "prompt", "response", "messages", "transcript", "input", "output", "source"];
+  var ALLOWED_EVENT_TYPES = new Set(Object.values(EVENT_TYPES));
+  var ALLOWED_REASON_CODES = new Set(Object.values(REASON_CODES));
+  var structuredEvents = [];
+  var eventSeq = 0;
+  var taskCaseIndex = /* @__PURE__ */ new Map();
+  var taskMetaIndex = /* @__PURE__ */ new Map();
+  function registerTaskMeta(taskId, meta) {
+    taskMetaIndex.set(taskId, { ...meta });
+  }
+  function taskCasesFor(taskId) {
+    return [...taskCaseIndex.get(taskId) ?? []];
+  }
+  function reasonForTask(taskId) {
+    return taskMetaIndex.get(taskId)?.review ? REASON_CODES.HUMAN_REJECTED : REASON_CODES.TEST_ASSERTION_FAIL;
+  }
+  function reasonForCheckpoint(checkpoint) {
+    if (checkpoint?.test) return REASON_CODES.TEST_ASSERTION_FAIL;
+    if (checkpoint?.review) return REASON_CODES.HUMAN_REJECTED;
+    return REASON_CODES.DESIGN_CONFLICT;
+  }
+  function batchIdFor(taskId, arrangement2) {
+    const index = arrangement2?.rounds?.findIndex((batch) => batch.includes(taskId)) ?? -1;
+    return index < 0 ? null : "B" + (index + 1);
+  }
+  function lastEventRef(eventType, entityRef) {
+    let latestAny = null;
+    for (let index = structuredEvents.length - 1; index >= 0; index--) {
+      const event = structuredEvents[index];
+      if (event.event_type !== eventType) continue;
+      if (event.entity_ref === entityRef || event.t_id === entityRef) return event.event_id;
+      if (!latestAny) latestAny = event.event_id;
+    }
+    return latestAny;
+  }
+  function recordEvent(partial = {}) {
+    try {
+      const source = partial && typeof partial === "object" ? partial : {};
+      const event = { ...EVENT_DEFAULTS, ...source };
+      for (const key of BODY_KEYS) {
+        if (Object.hasOwn(event, key)) {
+          delete event[key];
+          console.warn("[observability] \u5DF2\u5254\u9664\u6B63\u6587\u952E\uFF08\u4EC5\u4FDD\u7559\u5F15\u7528\uFF09\uFF1A" + key);
+        }
+      }
+      event.event_id = source.event_id || "evt_" + Date.now().toString(36) + "_" + (++eventSeq).toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+      event.timestamp = source.timestamp || (/* @__PURE__ */ new Date()).toISOString();
+      if (source.event_type !== void 0 && !ALLOWED_EVENT_TYPES.has(source.event_type)) {
+        console.warn("[observability] \u672A\u77E5 event_type\uFF08\u4EC5\u544A\u8B66\uFF09\uFF1A" + source.event_type);
+      }
+      if (event.reason_code !== null && !ALLOWED_REASON_CODES.has(event.reason_code)) {
+        console.warn("[observability] \u672A\u77E5 reason_code\uFF08\u4EC5\u544A\u8B66\uFF09\uFF1A" + event.reason_code);
+      }
+      structuredEvents.push(event);
+      return { ...event };
+    } catch (error) {
+      console.warn("[observability] recordEvent \u5FFD\u7565\u5F02\u5E38\uFF1A", error);
+      return void 0;
+    }
+  }
+  function getStructuredEvents() {
+    return structuredEvents.map((event) => ({ ...event }));
+  }
+  function mergeStructuredEvents(list) {
+    try {
+      if (!Array.isArray(list)) return 0;
+      let added = 0;
+      for (const event of list) {
+        if (!event || typeof event !== "object" || typeof event.event_type !== "string") continue;
+        structuredEvents.push({ ...EVENT_DEFAULTS, ...event });
+        added++;
+      }
+      return added;
+    } catch (error) {
+      console.warn("[observability] mergeStructuredEvents \u5FFD\u7565\u5F02\u5E38\uFF1A", error);
+      return 0;
+    }
+  }
+  function restoreStructuredEvents(list) {
+    if (!Array.isArray(list) || list.length > 1e4 || list.some((event) => !event || typeof event !== "object" || typeof event.event_type !== "string" || typeof event.event_id !== "string" || typeof event.timestamp !== "string")) {
+      throw new Error("\u7ED3\u6784\u5316\u4E8B\u4EF6\u8BB0\u5F55\u683C\u5F0F\u65E0\u6548");
+    }
+    structuredEvents = list.map((event) => ({ ...EVENT_DEFAULTS, ...event }));
+    return structuredEvents.length;
+  }
+  function buildSummary(events = structuredEvents) {
+    const list = Array.isArray(events) ? events : [];
+    const rollbacks_by_reason = {};
+    const attempts_per_task = {};
+    const human_interventions_by_type = {};
+    const observedBatches = [];
+    const plannedBatches = [];
+    const appendBatch = (target, id) => {
+      if (id && target.at(-1) !== id) target.push(id);
+    };
+    const executionTypes = /* @__PURE__ */ new Set([
+      EVENT_TYPES.TASK_STATUS_CHANGE,
+      EVENT_TYPES.ROLLBACK_EXECUTED,
+      EVENT_TYPES.ATTEMPT,
+      EVENT_TYPES.DELIVERY_CONFIRMED,
+      EVENT_TYPES.HANDOFF
+    ]);
+    let total_rollbacks = 0;
+    for (const event of list) {
+      if (event.event_type === EVENT_TYPES.ROLLBACK_EXECUTED) {
+        total_rollbacks++;
+        const code = event.reason_code ?? REASON_CODES.UNKNOWN;
+        rollbacks_by_reason[code] = (rollbacks_by_reason[code] || 0) + 1;
+      } else if (event.event_type === EVENT_TYPES.ATTEMPT) {
+        const key = event.t_id || event.entity_ref || "unknown";
+        attempts_per_task[key] = (attempts_per_task[key] || 0) + 1;
+      } else if (event.event_type === EVENT_TYPES.HUMAN_INTERVENTION) {
+        const key = event.subtype || "UNKNOWN";
+        human_interventions_by_type[key] = (human_interventions_by_type[key] || 0) + 1;
+      } else if (event.event_type === EVENT_TYPES.BATCH_PLANNED) {
+        for (const id of event.batch_ids ?? []) appendBatch(plannedBatches, id);
+      }
+      if (executionTypes.has(event.event_type)) appendBatch(observedBatches, event.batch_id);
+    }
+    const batch_sequence = observedBatches.length ? observedBatches : plannedBatches;
+    return { total_rollbacks, rollbacks_by_reason, attempts_per_task, human_interventions_by_type, batch_sequence };
+  }
   var actionLabels = { start: "\u5F00\u59CB\u6267\u884C", complete: "\u786E\u8BA4\u4EA4\u4ED8", ask: "\u8BF7\u6C42\u8865\u5145", answer: "\u63D0\u4EA4\u7B54\u590D", fail: "\u62A5\u544A\u5931\u8D25", retry: "\u4EBA\u5DE5\u91CD\u8BD5" };
   actionLabels.rollback = "\u56DE\u9000\u5B9E\u73B0";
   actionLabels.invalidated = "\u4EA4\u4ED8\u9700\u91CD\u9A8C";
@@ -1006,6 +990,16 @@
                 const evidence = note.value.trim() || (action === "complete" && output && task.role !== "\u6D4B\u8BD5" ? "\u5DF2\u786E\u8BA4 " + output.artifacts.map((file2) => file2.path).join("\u3001") : "");
                 runtime[task.id] = transition(task.id, action, evidence, runtime, arrangement2);
                 log(task.id, actionLabels[action], evidence);
+                if (action === "ask" || action === "answer") recordEvent({
+                  event_type: EVENT_TYPES.HUMAN_INTERVENTION,
+                  entity_ref: task.id,
+                  t_id: task.id,
+                  batch_id: batchIdFor(task.id, arrangement2),
+                  subtype: HUMAN_INTERVENTION_TYPES.FIELD_CLARIFICATION,
+                  actor: "human",
+                  payload_ref: "runtime." + task.id + ".notes[" + (runtime[task.id].notes.length - 1) + "].note",
+                  evidence_ref: "runtime." + task.id + ".notes"
+                });
                 noteDrafts.delete(task.id);
                 refreshExecution();
               } catch (issue) {
@@ -1035,6 +1029,17 @@
                   note.value.trim() + "\u3002\u9700\u91CD\u65B0\u9A8C\u8BC1\uFF1A" + update.affected.join("\u3001"),
                   { rollbackTarget: id, affected: update.affected }
                 );
+                recordEvent({
+                  event_type: EVENT_TYPES.HUMAN_INTERVENTION,
+                  entity_ref: id,
+                  t_id: id,
+                  batch_id: batchIdFor(id, arrangement2),
+                  subtype: HUMAN_INTERVENTION_TYPES.ROLLBACK_DECISION,
+                  reason_code: reasonForCheckpoint(task),
+                  actor: "human",
+                  payload_ref: "runtime." + task.id + ".notes[" + (runtime[task.id].notes.length - 1) + "].note",
+                  evidence_ref: "runtime." + task.id + ".status"
+                });
                 noteDrafts.delete(task.id);
                 refreshExecution();
               } catch (issue) {
@@ -1044,7 +1049,28 @@
             const showImpact = () => {
               rollback.disabled = !targets.value;
               impact.textContent = targets.value ? "\u4FEE\u590D " + targets.value + " \u540E\u91CD\u65B0\u9A8C\u8BC1 " + rollbackScope(targets.value, arrangement2).join("\u3001") + "\u3002" : "\u9009\u5B9A\u5B9E\u73B0\u4EFB\u52A1\u540E\u53EF\u9884\u89C8\u5F71\u54CD\u8303\u56F4\u3002";
+              if (targets.value) recordEvent({
+                event_type: EVENT_TYPES.ROLLBACK_PREVIEW,
+                entity_ref: targets.value,
+                t_id: targets.value,
+                batch_id: batchIdFor(targets.value, arrangement2),
+                affected_task_ids: rollbackScope(targets.value, arrangement2),
+                reason_code: reasonForCheckpoint(task),
+                actor: "human",
+                evidence_ref: "runtime." + task.id + ".status"
+              });
             };
+            targets.addEventListener("change", () => {
+              if (targets.value) recordEvent({
+                event_type: EVENT_TYPES.ROLLBACK_TARGET_SELECTED,
+                entity_ref: targets.value,
+                t_id: targets.value,
+                batch_id: batchIdFor(targets.value, arrangement2),
+                actor: "human",
+                reason_code: reasonForCheckpoint(task),
+                evidence_ref: "runtime." + task.id + ".status"
+              });
+            });
             targets.addEventListener("change", showImpact);
             showImpact();
             card.append(targetLabel, impact);
@@ -1107,7 +1133,13 @@
       download("task.md", lines.join("\n"), "text/markdown;charset=utf-8");
     });
     document.getElementById("export-activity").addEventListener("click", () => {
-      download("\u8FD0\u884C\u4E0E\u4EA4\u4E92\u8BB0\u5F55.json", JSON.stringify({ events, runtime, discussion }, null, 2), "application/json");
+      download("\u8FD0\u884C\u4E0E\u4EA4\u4E92\u8BB0\u5F55.json", JSON.stringify({
+        events,
+        runtime,
+        discussion,
+        structured_events: getStructuredEvents(),
+        summary: buildSummary()
+      }, null, 2), "application/json");
     });
     return {
       log,
@@ -1146,6 +1178,262 @@
         renderDiscussion();
       }
     };
+  }
+
+  // workflow.mjs
+  var roles2 = ["\u4EA7\u54C1\u8BBE\u8BA1", "\u524D\u7AEF", "\u540E\u7AEF", "\u6D4B\u8BD5", "\u8BC4\u5BA1"];
+  var testLevelLabels = { unit: "\u5355\u5143\u6D4B\u8BD5", integration: "\u8054\u8C03\u6D4B\u8BD5", e2e: "\u7AEF\u5230\u7AEF\u9A8C\u6536" };
+  var developmentRoles = /* @__PURE__ */ new Set(["\u524D\u7AEF", "\u540E\u7AEF"]);
+  var isImplementation = (task) => developmentRoles.has(task?.role) && task.kind !== "contract";
+  function taskStage(task) {
+    if (task.review) return "\u8BC4\u5BA1";
+    if (task.test) return testLevelLabels[task.test.level];
+    if (task.role === "\u6D4B\u8BD5") return "\u6D4B\u8BD5";
+    return isImplementation(task) ? "\u7F16\u7801" : "\u8BBE\u8BA1\u4E0E\u5951\u7EA6";
+  }
+  function check(condition, message) {
+    if (!condition) throw new Error(message);
+  }
+  function present(value) {
+    return typeof value === "string" && Boolean(value.trim());
+  }
+  function validate(plan) {
+    check(present(plan?.project), "\u7F3A\u5C11\u9879\u76EE\u540D\u79F0");
+    check(Array.isArray(plan.requirements) && plan.requirements.length > 0, "\u7F3A\u5C11\u9700\u6C42");
+    check(Array.isArray(plan.tasks) && plan.tasks.length >= 2 && plan.tasks.length <= 40, "\u4EFB\u52A1\u6570\u91CF\u5E94\u5728 2 \u81F3 40 \u4E4B\u95F4");
+    const requirements = /* @__PURE__ */ new Set();
+    for (const req of plan.requirements) {
+      check(/^R\d+$/.test(req.id) && !requirements.has(req.id) && present(req.text) && present(req.acceptance), "\u9700\u6C42\u7F16\u53F7\u91CD\u590D\u3001\u65E0\u6548\u6216\u7F3A\u5C11\u9A8C\u6536\u6807\u51C6");
+      requirements.add(req.id);
+    }
+    const tasksById = /* @__PURE__ */ new Map();
+    const covered = /* @__PURE__ */ new Set();
+    const tested = /* @__PURE__ */ new Set();
+    for (const task of plan.tasks) {
+      check(/^T\d+$/.test(task.id) && !tasksById.has(task.id), "\u4EFB\u52A1\u7F16\u53F7\u91CD\u590D\u6216\u65E0\u6548");
+      check(present(task.title) && present(task.acceptance) && roles2.includes(task.role), task.id + " \u7F3A\u5C11\u4EFB\u52A1\u540D\u79F0\u3001\u89D2\u8272\u6216\u9A8C\u6536\u6807\u51C6");
+      check(Array.isArray(task.requirements) && task.requirements.length > 0 && task.requirements.every((id) => requirements.has(id)), task.id + " \u5F15\u7528\u4E86\u672A\u77E5\u9700\u6C42");
+      for (const id of task.requirements) {
+        if (task.role === "\u6D4B\u8BD5") tested.add(id);
+        else covered.add(id);
+      }
+      check(Array.isArray(task.inputs) && task.inputs.every(present) && present(task.output), task.id + " \u7684\u8F93\u5165\u6216\u4EA4\u4ED8\u7269\u65E0\u6548");
+      tasksById.set(task.id, task);
+    }
+    for (const task of plan.tasks) {
+      if (task.review !== void 0 || task.role === "\u8BC4\u5BA1") {
+        const target = tasksById.get(task.review?.target);
+        check(
+          task.role === "\u8BC4\u5BA1" && isImplementation(target) && task.inputs.includes(target.output),
+          task.id + " \u7684\u8BC4\u5BA1\u5FC5\u987B\u5173\u8054\u5BF9\u5E94\u7684\u7F16\u7801\u4EA4\u4ED8\u7269"
+        );
+      }
+      if (task.test === void 0) continue;
+      const { level, targets } = task.test ?? {};
+      check(task.role === "\u6D4B\u8BD5" && Object.hasOwn(testLevelLabels, level) && Array.isArray(targets) && new Set(targets).size === targets.length && targets.length >= (level === "integration" ? 2 : 1) && (level !== "unit" || targets.length === 1), task.id + " \u7684\u6D4B\u8BD5\u5C42\u6B21\u6216\u5B9E\u73B0\u76EE\u6807\u65E0\u6548");
+      check(targets.every((id) => {
+        const target = tasksById.get(id);
+        return isImplementation(target) && task.inputs.includes(target.output);
+      }), task.id + " \u5FC5\u987B\u4F9D\u8D56\u5176\u6D4B\u8BD5\u76EE\u6807\u7684\u5B9E\u73B0\u4EA4\u4ED8\u7269");
+      if (task.test.cases !== void 0) {
+        check(Array.isArray(task.test.cases) && task.test.cases.length > 0 && new Set(task.test.cases).size === task.test.cases.length && task.test.cases.every((id) => /^TC[1-9]\d*$/.test(id)), task.id + " \u7684\u6D4B\u8BD5\u7528\u4F8B\u7F16\u53F7\u65E0\u6548");
+      }
+    }
+    check([...requirements].every((id) => covered.has(id) && tested.has(id)), "\u6BCF\u6761\u9700\u6C42\u90FD\u5E94\u6709\u975E\u6D4B\u8BD5\u4EFB\u52A1\u548C\u6D4B\u8BD5\u4EFB\u52A1\u8986\u76D6");
+  }
+  function schedule(plan, capacity2) {
+    check(Number.isInteger(capacity2) && capacity2 >= 1 && capacity2 <= 8, "\u5E76\u884C\u4E0A\u9650\u987B\u5728 1 \u81F3 8 \u4E4B\u95F4");
+    validate(plan);
+    const producers = /* @__PURE__ */ new Map();
+    for (const task of plan.tasks) {
+      check(!producers.has(task.output), "\u4EA4\u4ED8\u7269\u6709\u591A\u4E2A\u751F\u4EA7\u4EFB\u52A1\uFF1A" + task.output);
+      producers.set(task.output, task.id);
+    }
+    const dependencies = {};
+    const edges = [];
+    for (const task of plan.tasks) {
+      dependencies[task.id] = [];
+      const inputs = new Set(task.inputs);
+      if (task.role === "\u6D4B\u8BD5" && !task.test) {
+        for (const implementation of plan.tasks) {
+          if (implementation.role !== "\u6D4B\u8BD5" && implementation.requirements.some((id) => task.requirements.includes(id))) {
+            inputs.add(implementation.output);
+          }
+        }
+      }
+      for (const input of inputs) {
+        const from = producers.get(input);
+        check(from, task.id + " \u7684\u8F93\u5165\u7F3A\u5C11\u751F\u4EA7\u4EFB\u52A1\uFF1A" + input);
+        check(from !== task.id, task.id + " \u4F9D\u8D56\u81EA\u5DF1\u7684\u4EA4\u4ED8\u7269");
+        dependencies[task.id].push(from);
+        edges.push({ from, to: task.id, artifact: input });
+      }
+    }
+    const completed = /* @__PURE__ */ new Set();
+    const rounds = [];
+    while (completed.size < plan.tasks.length) {
+      const ready = plan.tasks.filter((task) => !completed.has(task.id) && dependencies[task.id].every((id) => completed.has(id)));
+      check(ready.length > 0, "\u68C0\u6D4B\u5230\u5FAA\u73AF\u4F9D\u8D56\uFF0C\u5269\u4F59\u4EFB\u52A1\uFF1A" + plan.tasks.filter((task) => !completed.has(task.id)).map((task) => task.id).join("\u3001"));
+      const batch = ready.slice(0, capacity2).map((task) => task.id);
+      rounds.push(batch);
+      for (const id of batch) completed.add(id);
+    }
+    for (const task of plan.tasks) registerTaskMeta(task.id, task);
+    recordEvent({
+      event_type: EVENT_TYPES.BATCH_PLANNED,
+      batch_ids: rounds.map((_, index) => "B" + (index + 1)),
+      evidence_ref: "arrangement.rounds",
+      actor: "system"
+    });
+    return { capacity: capacity2, rounds, dependencies, edges };
+  }
+
+  // pipeline.mjs
+  function check2(condition, message) {
+    if (!condition) throw new Error(message);
+  }
+  function text(value, limit = 500) {
+    return typeof value === "string" && value.trim() && value.length <= limit;
+  }
+  function entries(list, prefix, label, limit = 12) {
+    check2(Array.isArray(list) && list.length > 0 && list.length <= limit, label + "\u9700\u8981 1 \u81F3 " + limit + " \u4E2A\u6761\u76EE");
+    const ids = /* @__PURE__ */ new Set();
+    for (const item of list) {
+      check2(typeof item?.id === "string" && new RegExp("^" + prefix + "[1-9]\\d*$").test(item.id) && !ids.has(item.id), label + "\u6761\u76EE\u7F16\u53F7\u65E0\u6548\u6216\u91CD\u590D");
+      ids.add(item.id);
+    }
+    return ids;
+  }
+  function references(ids, available) {
+    return Array.isArray(ids) && ids.length > 0 && new Set(ids).size === ids.length && ids.every((id) => available.has(id));
+  }
+  function validateRequirements(document2) {
+    check2(text(document2?.project, 120) && text(document2.goal) && text(document2.scope), "\u9700\u6C42\u89C4\u683C\u7F3A\u5C11\u9879\u76EE\u540D\u79F0\u3001\u76EE\u6807\u6216\u8303\u56F4");
+    entries(document2.requirements, "R", "\u9700\u6C42\u89C4\u683C");
+    for (const req of document2.requirements) {
+      check2(text(req.text) && text(req.acceptance), req.id + " \u7F3A\u5C11\u9700\u6C42\u63CF\u8FF0\u6216\u53EF\u9A8C\u8BC1\u7684\u9A8C\u6536\u6761\u4EF6");
+    }
+  }
+  function validateDesign(design, requirements) {
+    validateRequirements(requirements);
+    check2(text(design?.summary, 1e3), "\u8BBE\u8BA1\u89C4\u683C\u7F3A\u5C11\u603B\u4F53\u8BBE\u8BA1");
+    entries(design.components, "D", "\u8BBE\u8BA1\u89C4\u683C");
+    const known = new Set(requirements.requirements.map((req) => req.id));
+    const covered = /* @__PURE__ */ new Set();
+    for (const part of design.components) {
+      check2(
+        text(part.title, 120) && text(part.design, 800) && text(part.contract, 600),
+        part.id + " \u7F3A\u5C11\u6A21\u5757\u540D\u79F0\u3001\u5B9E\u73B0\u8BBE\u8BA1\u6216\u63A5\u53E3\u4E0E\u6570\u636E\u7EA6\u5B9A"
+      );
+      check2(references(part.requirements, known), part.id + " \u5F15\u7528\u4E86\u4E0D\u5B58\u5728\u6216\u91CD\u590D\u7684\u9700\u6C42\u7F16\u53F7");
+      for (const id of part.requirements) covered.add(id);
+    }
+    check2(covered.size === known.size, "\u5B58\u5728\u5C1A\u672A\u5173\u8054\u8BBE\u8BA1\u6A21\u5757\u7684\u9700\u6C42");
+  }
+  function validateTaskLinks(plan, design) {
+    const components = new Map(design.components.map((part) => [part.id, part]));
+    const development = /* @__PURE__ */ new Set();
+    const tests = /* @__PURE__ */ new Set();
+    for (const task of plan.tasks) {
+      check2(references(task.designs, components), task.id + " \u9700\u8981\u5173\u8054\u6709\u6548\u7684\u8BBE\u8BA1\u7F16\u53F7");
+      const implied = new Set(task.designs.flatMap((id) => components.get(id).requirements));
+      check2(task.requirements.every((id) => implied.has(id)), task.id + " \u7684\u9700\u6C42\u7F16\u53F7\u8D85\u51FA\u5173\u8054\u8BBE\u8BA1\u8986\u76D6\u7684\u8303\u56F4");
+      check2(
+        task.designs.every((id) => components.get(id).requirements.some((req) => task.requirements.includes(req))),
+        task.id + " \u7684\u5173\u8054\u8BBE\u8BA1\u548C\u9700\u6C42\u9700\u8981\u6709\u4EA4\u96C6"
+      );
+      const target = task.role === "\u6D4B\u8BD5" ? tests : development;
+      for (const id of task.designs) target.add(id);
+    }
+    check2(
+      development.size === components.size && tests.size === components.size,
+      "\u6BCF\u9879\u8BBE\u8BA1\u90FD\u9700\u8981\u5F00\u53D1\u4EFB\u52A1\u548C\u9A8C\u6536\u6D4B\u8BD5"
+    );
+  }
+  function validateTestPlan(value, design, plan) {
+    check2(text(value?.strategy, 1e3), "\u6D4B\u8BD5\u65B9\u6848\u7F3A\u5C11\u8303\u56F4\u4E0E\u65B9\u6CD5");
+    entries(value.cases, "TC", "\u6D4B\u8BD5\u65B9\u6848", 48);
+    const designById = new Map((design?.components ?? []).map((part) => [part.id, part]));
+    const testers = new Map(plan.tasks.filter((task) => task.role === "\u6D4B\u8BD5").map((task) => [task.id, task]));
+    const coveredRequirements = /* @__PURE__ */ new Set();
+    const coveredDesigns = /* @__PURE__ */ new Set();
+    const coveredTasks = /* @__PURE__ */ new Set();
+    for (const test of value.cases) {
+      const task = testers.get(test.task);
+      const parts = test.designs ?? (test.design ? [test.design] : []);
+      check2(
+        task && (design ? references(parts, designById) && parts[0] === test.design && parts.every((id) => task.designs.includes(id)) : !parts.length && test.design === void 0),
+        test.id + " \u7684\u8BBE\u8BA1\u7F16\u53F7\u4E0E\u6D4B\u8BD5\u4EFB\u52A1\u4E0D\u5339\u914D"
+      );
+      const applicable = new Set(parts.flatMap((id) => designById.get(id).requirements));
+      check2(
+        references(test.requirements, new Set(task.requirements.filter((id) => !design || applicable.has(id)))) && parts.every((id) => designById.get(id).requirements.some((req) => test.requirements.includes(req))),
+        test.id + " \u5F15\u7528\u4E86\u4E0E\u8BBE\u8BA1\u6216\u6D4B\u8BD5\u4EFB\u52A1\u65E0\u5173\u7684\u9700\u6C42"
+      );
+      check2(
+        text(test.title, 120) && text(test.setup) && text(test.expected) && Array.isArray(test.steps) && test.steps.length > 0 && test.steps.length <= 10 && test.steps.every((step) => text(step, 300)),
+        test.id + " \u7F3A\u5C11\u6807\u9898\u3001\u524D\u7F6E\u6761\u4EF6\u3001\u53EF\u6267\u884C\u6B65\u9AA4\u6216\u9884\u671F\u7ED3\u679C"
+      );
+      test.requirements.forEach((id) => coveredRequirements.add(id));
+      parts.forEach((id) => coveredDesigns.add(id));
+      coveredTasks.add(task.id);
+    }
+    check2(plan.requirements.every((req) => coveredRequirements.has(req.id)), "\u5B58\u5728\u672A\u88AB\u7528\u4F8B\u8986\u76D6\u7684\u9700\u6C42");
+    check2(
+      coveredDesigns.size === designById.size && coveredTasks.size === testers.size,
+      "\u6BCF\u9879\u8BBE\u8BA1\u53CA\u6D4B\u8BD5\u4EFB\u52A1\u90FD\u9700\u8981\u5173\u8054\u6D4B\u8BD5\u7528\u4F8B"
+    );
+    for (const task of testers.values()) {
+      if (!task.test?.cases) continue;
+      const cases = value.cases.filter((test) => test.task === task.id);
+      const ids = cases.map((test) => test.id);
+      check2(
+        ids.length === task.test.cases.length && task.test.cases.every((id) => ids.includes(id)),
+        task.id + " \u7684\u7528\u4F8B\u6E05\u5355\u4E0E\u6D4B\u8BD5\u65B9\u6848\u4E0D\u4E00\u81F4"
+      );
+      const covered = new Set(cases.flatMap((test) => test.requirements));
+      check2(task.requirements.every((id) => covered.has(id)), task.id + " \u7684\u7528\u4F8B\u672A\u8986\u76D6\u4EFB\u52A1\u7684\u5168\u90E8\u9700\u6C42");
+    }
+  }
+  function designMarkdown(requirements, design) {
+    const lines = [
+      "# " + requirements.project + " \xB7 \u8BBE\u8BA1\u89C4\u683C",
+      "",
+      "## \u603B\u4F53\u8BBE\u8BA1",
+      "",
+      design.summary,
+      "",
+      "## \u6A21\u5757\u8BBE\u8BA1",
+      ""
+    ];
+    for (const part of design.components) {
+      lines.push(
+        "### " + part.id + " \xB7 " + part.title,
+        "",
+        "\u5173\u8054\u9700\u6C42\uFF1A" + part.requirements.join("\u3001"),
+        "",
+        part.design,
+        "",
+        "\u63A5\u53E3\u4E0E\u6570\u636E\u7EA6\u5B9A\uFF1A" + part.contract,
+        ""
+      );
+    }
+    return lines.join("\n");
+  }
+  function designFeedback(design, plan, arrangement2) {
+    const batchOf = new Map(arrangement2.rounds.flatMap((ids, index) => ids.map((id) => [id, index + 1])));
+    return design.components.map((part) => ({
+      ...part,
+      tasks: plan.tasks.filter((task) => task.designs.includes(part.id)).map((task) => ({
+        id: task.id,
+        title: task.title,
+        role: task.role,
+        batch: batchOf.get(task.id),
+        output: task.output,
+        acceptance: task.acceptance,
+        predecessors: arrangement2.dependencies[task.id]
+      }))
+    }));
   }
 
   // app.mjs
@@ -1363,6 +1651,7 @@
     const label = labels[endpoint] || endpoint;
     const started = performance.now();
     const agent = planningAgents[endpoint];
+    let received = false;
     if (track) monitor.log(label, "\u5F00\u59CB", "\u5DF2\u63D0\u4EA4 DeepSeek API \u8BF7\u6C42", { agent });
     try {
       const response = await fetch(apiBase + "/api/" + endpoint, {
@@ -1371,6 +1660,8 @@
         body: JSON.stringify({ ...body, apiKey: pageKey })
       });
       const data = await response.json();
+      received = true;
+      mergeStructuredEvents(data.observability_events);
       if (!response.ok) throw new Error(data.error);
       if (track) {
         monitor.log(
@@ -1383,6 +1674,15 @@
       }
       return data;
     } catch (error) {
+      if (!received) {
+        recordEvent({ event_type: EVENT_TYPES.STAGE_START, stage: endpoint, actor: "system" });
+        recordEvent({
+          event_type: EVENT_TYPES.STAGE_FAIL,
+          stage: endpoint,
+          actor: "system",
+          reason_code: REASON_CODES.NETWORK_ERROR
+        });
+      }
       if (track) monitor.log(label, "\u5931\u8D25", error.message, { agent });
       throw error;
     }
@@ -1482,7 +1782,17 @@
     if (!chosen) return;
     try {
       if (chosen.size > 1024 * 1024) throw new Error("\u7ED3\u679C\u6587\u4EF6\u6700\u591A 1 MB\u3002");
-      const { provider, spec: source, plan, model, generatedAt, pipeline: chain, observation, testPlan } = JSON.parse(await chosen.text());
+      const {
+        provider,
+        spec: source,
+        plan,
+        model,
+        generatedAt,
+        pipeline: chain,
+        observation,
+        testPlan,
+        events: exportedEvents = []
+      } = JSON.parse(await chosen.text());
       if (busy) return;
       const input = chain === void 0 ? source : chain?.idea;
       if (provider !== "deepseek" || typeof input !== "string" || input.trim().length < 15 || input.length > 4e3 || typeof model !== "string" || !model.trim()) {
@@ -1506,6 +1816,7 @@
       }
       const restoredArrangement = schedule(restoredPlan, Number(capacity.value));
       monitor.restore(observation, restoredPlan, restoredArrangement);
+      restoreStructuredEvents(exportedEvents);
       pipeline = chain;
       draft = void 0;
       inputMode.value = chain ? "idea" : "design";
@@ -2177,7 +2488,9 @@ export const executeCoreTask = async (req: Request, res: Response) => {
         ...result,
         arrangement,
         designFeedback: feedback,
-        observation: monitor.snapshot()
+        observation: monitor.snapshot(),
+        events: getStructuredEvents(),
+        summary: buildSummary()
       }, null, 2),
       "application/json"
     );

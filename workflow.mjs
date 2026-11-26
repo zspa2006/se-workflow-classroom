@@ -1,3 +1,5 @@
+import { recordEvent, registerTaskMeta, EVENT_TYPES } from './observability.mjs';
+
 export const roles = ['产品设计', '前端', '后端', '测试', '评审'];
 export const testLevelLabels = {unit: '单元测试', integration: '联调测试', e2e: '端到端验收'};
 const developmentRoles = new Set(['前端', '后端']);
@@ -202,5 +204,10 @@ export function schedule(plan, capacity) {
     rounds.push(batch);
     for (const id of batch) completed.add(id);
   }
+  // 批次记录点：批次计算完成后写入，不插入计算中间。
+  for (const task of plan.tasks) registerTaskMeta(task.id, task);
+  recordEvent({event_type: EVENT_TYPES.BATCH_PLANNED,
+    batch_ids: rounds.map((_, index) => 'B' + (index + 1)),
+    evidence_ref: 'arrangement.rounds', actor: 'system'});
   return {capacity, rounds, dependencies, edges};
 }
