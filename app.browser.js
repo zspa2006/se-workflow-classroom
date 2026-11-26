@@ -411,6 +411,54 @@
     }
   }
 
+  // status.mjs
+  var statusOrder = ["pending", "ready", "running", "waiting", "failed", "done"];
+  var statusGlyphs = Object.freeze({
+    pending: "\u22EF",
+    ready: "\u25B6",
+    running: "\u25CF",
+    waiting: "\u270B",
+    failed: "!",
+    done: "\u2713"
+  });
+  function statusBadge(state, label, { rollbackAffected = false } = {}) {
+    const safeState = statusOrder.includes(state) ? state : "pending";
+    const badge = document.createElement("span");
+    badge.className = "status-badge status-" + safeState + (rollbackAffected ? " is-rollback-affected" : "");
+    badge.setAttribute("aria-label", label + (rollbackAffected ? "\uFF0C\u53D7\u56DE\u9000\u5F71\u54CD" : ""));
+    const glyph = document.createElement("span");
+    glyph.className = "status-glyph";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = statusGlyphs[safeState];
+    badge.append(glyph, document.createTextNode(label));
+    if (rollbackAffected) {
+      const marker = document.createElement("span");
+      marker.className = "status-marker";
+      marker.setAttribute("aria-hidden", "true");
+      marker.textContent = "\u21BA";
+      badge.append(marker);
+    }
+    return badge;
+  }
+  function rollbackAffectedIds(tasks, arrangement2, runtime, getTargets) {
+    const targets = /* @__PURE__ */ new Set();
+    for (const checkpoint of tasks) {
+      if (runtime[checkpoint.id]?.status !== "failed") continue;
+      for (const target of getTargets(checkpoint) ?? []) {
+        const record = runtime[target];
+        const rolledBack = record?.attempts > 0 && record.notes?.some((item) => item.action === "rollback");
+        if (rolledBack) targets.add(target);
+      }
+    }
+    const affected = /* @__PURE__ */ new Set();
+    for (const id of arrangement2.rounds.flat()) {
+      if (targets.has(id) || arrangement2.dependencies[id]?.some((parent) => affected.has(parent))) {
+        affected.add(id);
+      }
+    }
+    return affected;
+  }
+
   // observability.mjs
   var EVENT_TYPES = Object.freeze({
     STAGE_START: "STAGE_START",
@@ -919,6 +967,7 @@
       const { plan } = getResult();
       const arrangement2 = getArrangement();
       const tasks = new Map(plan.tasks.map((task) => [task.id, task]));
+      const affected = rollbackAffectedIds(plan.tasks, arrangement2, runtime, rollbackTargets);
       container.append(node("p", "\u8282\u70B9\u901A\u8FC7 DeepSeek API \u8C03\u7528\u5BF9\u5E94 Agent\u3002\u8D1F\u8D23\u4EBA\u786E\u8BA4\u540E\uFF0C\u4EA7\u7269\u624D\u4F1A\u4F20\u7ED9\u4F9D\u8D56\u5B83\u7684\u8282\u70B9\u3002\u6D4B\u8BD5\u811A\u672C\u7531\u8D1F\u8D23\u4EBA\u5728\u9879\u76EE\u73AF\u5883\u8FD0\u884C\u3002", "hint"));
       const batch = button("\u5E76\u884C\u8C03\u7528\u5C31\u7EEA Agent", async () => {
         if (isBusy() || !await ready() || getResult()?.plan !== plan) return;
@@ -935,9 +984,14 @@
         const agent = agentForTask(task);
         const output = currentAgentOutput(runtime[task.id]);
         const inFlight = pendingAgents.has(task.id);
+        const stateLine = node("p", "", "execution-status");
+        stateLine.append(
+          statusBadge(state, stateLabels[state], { rollbackAffected: affected.has(task.id) }),
+          node("span", " \xB7 " + agent.name + " \xB7 " + taskStage(task) + " \xB7 " + (inFlight ? "Agent \u751F\u6210\u4E2D" : "") + " \xB7 \u5C1D\u8BD5 " + (runtime[task.id]?.attempts || 0) + " \u6B21")
+        );
         card.append(
           node("h3", task.id + " \xB7 " + task.title),
-          node("p", agent.name + " \xB7 " + taskStage(task) + " \xB7 " + (inFlight ? "Agent \u751F\u6210\u4E2D" : stateLabels[state]) + " \xB7 \u5C1D\u8BD5 " + (runtime[task.id]?.attempts || 0) + " \u6B21", "execution-status"),
+          stateLine,
           node("p", agent.duty),
           node("p", "\u9884\u671F\u4EA4\u4ED8\u7269\uFF1A" + task.output),
           node("p", "\u524D\u7F6E\uFF1A" + (arrangement2.dependencies[task.id].map((id) => id + " " + stateLabels[taskState(id, runtime, arrangement2)]).join("\u3001") || "\u65E0"))
@@ -1144,6 +1198,9 @@
     return {
       log,
       renderExecution,
+      getRuntime() {
+        return runtime;
+      },
       reset() {
         events = [];
         this.resetRuntime();
@@ -2043,6 +2100,9 @@
   }
   function taskCard(task, full = false, interactive = false) {
     const card = element(interactive ? "button" : "article", "", "task");
+    const runtime = monitor.getRuntime();
+    const state = taskState(task.id, runtime, arrangement);
+    const affected = rollbackAffectedIds(result.plan.tasks, arrangement, runtime, rollbackTargets).has(task.id);
     if (interactive) {
       if (task.role === "\u524D\u7AEF") card.style.borderLeft = "4px solid #3498db";
       if (task.role === "\u540E\u7AEF") card.style.borderLeft = "4px solid #e74c3c";
@@ -2053,6 +2113,7 @@
     const stage = taskStage(task);
     const agent = agentForTask(task);
     card.append(
+      statusBadge(state, stateLabels[state], { rollbackAffected: affected }),
       element("span", task.id + " \xB7 " + (stage === "\u7F16\u7801" ? "\u7F16\u7801 / " + task.role : stage) + " \xB7 " + task.requirements.join("\u3001"), "task-meta"),
       element("strong", task.title),
       element("span", agent.name, "task-agent")

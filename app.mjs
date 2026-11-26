@@ -3,8 +3,9 @@ import { schedule, taskStage, testLevelLabels } from './workflow.mjs';
 import { validateDesign, validateTaskLinks, validateTestPlan, designMarkdown, designFeedback } from './pipeline.mjs';
 import { createObservability, recordEvent, mergeStructuredEvents, getStructuredEvents, buildSummary,
   restoreStructuredEvents, EVENT_TYPES, REASON_CODES } from './observability.mjs';
-import { rollbackScope, rollbackTargets } from './interaction.mjs';
+import { stateLabels, taskState, rollbackScope, rollbackTargets } from './interaction.mjs';
 import { agentForTask, planningAgents } from './agents.mjs';
+import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -583,6 +584,9 @@ function taskCases(task) {
 
 function taskCard(task, full = false, interactive = false) {
   const card = element(interactive ? 'button' : 'article', '', 'task');
+  const runtime = monitor.getRuntime();
+  const state = taskState(task.id, runtime, arrangement);
+  const affected = rollbackAffectedIds(result.plan.tasks, arrangement, runtime, rollbackTargets).has(task.id);
   
   if (interactive) {
     if (task.role === '前端') card.style.borderLeft = '4px solid #3498db';
@@ -594,7 +598,8 @@ function taskCard(task, full = false, interactive = false) {
 
   const stage = taskStage(task);
   const agent = agentForTask(task);
-  card.append(element('span', task.id + ' · ' + (stage === '编码' ? '编码 / ' + task.role : stage) +
+  card.append(statusBadge(state, stateLabels[state], {rollbackAffected: affected}),
+    element('span', task.id + ' · ' + (stage === '编码' ? '编码 / ' + task.role : stage) +
     ' · ' + task.requirements.join('、'), 'task-meta'),
     element('strong', task.title), element('span', agent.name, 'task-agent'));
     

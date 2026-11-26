@@ -3,6 +3,7 @@ import {taskStage, testLevelLabels} from './workflow.mjs';
 import {agentForTask, approvedHandoffs, currentAgentOutput, validateAgentOutput} from './agents.mjs';
 import {stanceLabels, discussionParticipants, acknowledgedAll, startConsensusRound,
   registerStance, confirmConsensus, validateConsensus} from './consensus.mjs';
+import {statusBadge, rollbackAffectedIds} from './status.mjs';
 
 // ===== 结构化观测扩展：纯增量，既有 log 事件与导出字段保持原样 =====
 export const EVENT_TYPES = Object.freeze({
@@ -470,6 +471,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     const {plan} = getResult();
     const arrangement = getArrangement();
     const tasks = new Map(plan.tasks.map(task => [task.id, task]));
+    const affected = rollbackAffectedIds(plan.tasks, arrangement, runtime, rollbackTargets);
     container.append(node('p', '节点通过 DeepSeek API 调用对应 Agent。负责人确认后，产物才会传给依赖它的节点。测试脚本由负责人在项目环境运行。', 'hint'));
     const batch = button('并行调用就绪 Agent', async () => {
       if (isBusy() || !await ready() || getResult()?.plan !== plan) return;
@@ -488,9 +490,11 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       const agent = agentForTask(task);
       const output = currentAgentOutput(runtime[task.id]);
       const inFlight = pendingAgents.has(task.id);
-      card.append(node('h3', task.id + ' · ' + task.title),
-        node('p', agent.name + ' · ' + taskStage(task) + ' · ' + (inFlight ? 'Agent 生成中' : stateLabels[state]) +
-          ' · 尝试 ' + (runtime[task.id]?.attempts || 0) + ' 次', 'execution-status'),
+      const stateLine = node('p', '', 'execution-status');
+      stateLine.append(statusBadge(state, stateLabels[state], {rollbackAffected: affected.has(task.id)}),
+        node('span', ' · ' + agent.name + ' · ' + taskStage(task) + ' · ' + (inFlight ? 'Agent 生成中' : '') +
+          ' · 尝试 ' + (runtime[task.id]?.attempts || 0) + ' 次'));
+      card.append(node('h3', task.id + ' · ' + task.title), stateLine,
         node('p', agent.duty),
         node('p', '预期交付物：' + task.output),
         node('p', '前置：' + (arrangement.dependencies[task.id].map(id => id + ' ' + stateLabels[taskState(id, runtime, arrangement)]).join('、') || '无')));
@@ -640,6 +644,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
   });
   return {
     log, renderExecution,
+    getRuntime() { return runtime; },
     reset() { events = []; this.resetRuntime(); discussion = undefined; discussionResult.replaceChildren(); renderActivity(); },
     resetRuntime() { runtime = {}; pendingAgents.clear(); agentErrors.clear(); noteDrafts.clear(); },
     snapshot() { return structuredClone({events, runtime, discussion}); },
