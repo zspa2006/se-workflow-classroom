@@ -182,7 +182,7 @@ summary{cursor:pointer;font-weight:700}
 #activity li{padding:7px 0;border-bottom:1px solid var(--line)}
 #activity strong{margin:0 10px}
 #activity span{display:block;white-space:pre-wrap}
-.round{border-top:1px solid var(--line);padding:12px 0}.round .task-list{display:flex;align-items:stretch;gap:9px}.round .task{flex:1;min-width:0}.critical-task{box-shadow:inset 4px 0 0 var(--green)}
+.round{border-top:1px solid var(--line);padding:12px 0}.round .task-list{display:flex;align-items:stretch;gap:9px}.round .task{flex:0 0 210px}.critical-task{position:relative}.critical-task::after{content:'关键路径';display:table;margin-top:7px;padding:2px 6px;border:1px solid var(--green);border-radius:5px;color:var(--green);font-size:11px;font-weight:700}
 .batch-attempts{font-weight:700;color:#814817}.batch-causality{padding:6px 8px;border-left:3px solid #b56726;background:#fff7ed;color:#814817;font-size:12px}
 @media(max-width:740px){main{padding:17px 12px}.mast{padding:0 12px}.hero{display:block;padding:19px}.flow{margin-top:14px}.workspace{grid-template-columns:1fr}.notice{min-height:260px}}
 @media(max-width:420px){.task-list,.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.connection{max-width:47%}.tabs{gap:0;padding:0 8px}.task-list{grid-template-columns:1fr}}

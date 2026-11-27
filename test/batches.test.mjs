@@ -19,5 +19,15 @@ test('rollbackCausality reads rollback and invalidated notes', () => {
     T2: {notes: [{action: 'invalidated', test: 'T3', target: 'T1'}]},
     T3: {notes: []},
   };
-  assert.deepEqual(rollbackCausality(runtime), [{taskId: 'T1', checkpoint: 'T3', target: 'T1', invalidated: ['T2']}]);
+  assert.deepEqual(rollbackCausality(runtime), [{taskId: 'T1', checkpoint: 'T3', target: 'T1', time: undefined, invalidated: ['T2']}]);
+});
+
+test('rollbackCausality keeps the latest round for a task', () => {
+  const runtime = {T1: {notes: [
+    {action: 'rollback', test: 'T3', target: 'T1', time: '2026-01-01T00:00:00.000Z'},
+    {action: 'rollback', test: 'T4', target: 'T1', time: '2026-01-02T00:00:00.000Z'},
+  ]}, T2: {notes: [
+    {action: 'invalidated', test: 'T4', target: 'T1', time: '2026-01-02T00:00:00.000Z'},
+  ]}};
+  assert.deepEqual(rollbackCausality(runtime), [{taskId: 'T1', checkpoint: 'T4', target: 'T1', time: '2026-01-02T00:00:00.000Z', invalidated: ['T2']}]);
 });

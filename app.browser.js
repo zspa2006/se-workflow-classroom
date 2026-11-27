@@ -1611,17 +1611,20 @@
     return chain;
   }
   function rollbackCausality(runtime) {
-    const rows = [];
+    const latest = /* @__PURE__ */ new Map();
     for (const [taskId, record] of Object.entries(runtime)) for (const note of record.notes ?? []) {
       if (note.action !== "rollback") continue;
-      rows.push({
-        taskId,
-        checkpoint: note.test,
-        target: note.target,
-        invalidated: Object.entries(runtime).filter(([, item]) => item.notes?.some((entry) => entry.action === "invalidated" && entry.test === note.test && entry.target === note.target)).map(([id]) => id).sort()
-      });
+      const key = taskId;
+      const current = latest.get(key);
+      if (!current || String(note.time) > String(current.time)) latest.set(key, { ...note, taskId });
     }
-    return rows;
+    return [...latest.values()].sort((a, b) => a.taskId.localeCompare(b.taskId)).map((note) => ({
+      taskId: note.taskId,
+      checkpoint: note.test,
+      target: note.target,
+      time: note.time,
+      invalidated: Object.entries(runtime).filter(([, item]) => item.notes?.some((entry) => entry.action === "invalidated" && entry.time === note.time)).map(([id]) => id).sort()
+    }));
   }
 
   // app.mjs
