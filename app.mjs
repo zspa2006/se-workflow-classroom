@@ -8,6 +8,7 @@ import { agentForTask, planningAgents } from './agents.mjs';
 import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
 import { orderLayers, transitiveUpstream, transitiveDownstream, focusBreadcrumb, groupByDepth } from './graph/layout.mjs';
 import { taskDepths, criticalChain, rollbackCausality } from './graph/batches.mjs';
+import { clampScale } from './graph/viewport.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -856,14 +857,51 @@ function showGraph(tasksById, affectedIds) {
   reset.type = 'button';
   toolbar.append(explanation, reset);
   view.append(toolbar);
+  const viewportTools = element('div', '', 'graph-viewport-tools');
+  const zoom = {scale: 1};
+  const applyZoom = scale => { zoom.scale = clampScale(scale); graph.style.transform = 'scale(' + zoom.scale + ')'; draw(); };
+  for (const [label, factor] of [['放大', 1.25], ['缩小', 0.8]]) {
+    const control = element('button', label);
+    control.type = 'button';
+    control.setAttribute('aria-label', label + '依赖图');
+    control.addEventListener('click', () => { applyZoom(zoom.scale * factor); control.focus(); });
+    viewportTools.append(control);
+  }
+  const fit = element('button', '适应窗口');
+  fit.type = 'button';
+  fit.setAttribute('aria-label', '适应窗口');
+  fit.addEventListener('click', () => { applyZoom(1); fit.focus(); });
+  viewportTools.append(fit);
+  view.append(viewportTools);
   const scroll = element('div', '', 'graph-scroll');
   scroll.tabIndex = 0;
   scroll.setAttribute('aria-label', vertical ? '按执行批次从上到下的流程图' : '可横向滚动的任务依赖图');
   const graph = element('div', '', vertical ? 'graph graph-vertical' : 'graph');
+  graph.style.transformOrigin = 'top left';
   const canvas = element('canvas');
   canvas.setAttribute('aria-hidden', 'true');
   graph.append(canvas);
   scroll.append(graph);
+  scroll.addEventListener('wheel', event => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    applyZoom(zoom.scale * (event.deltaY < 0 ? 1.1 : 0.9));
+  }, {passive: false});
+  let dragging = false;
+  let spaceHeld = false;
+  let lastX = 0;
+  let lastY = 0;
+  scroll.addEventListener('keydown', event => { if (event.code === 'Space') spaceHeld = true; });
+  scroll.addEventListener('keyup', event => { if (event.code === 'Space') spaceHeld = false; });
+  scroll.addEventListener('pointerdown', event => {
+    if (event.button !== 1 && !spaceHeld) return;
+    dragging = true; lastX = event.clientX; lastY = event.clientY; scroll.setPointerCapture(event.pointerId); event.preventDefault();
+  });
+  scroll.addEventListener('pointermove', event => {
+    if (!dragging) return;
+    scroll.scrollLeft -= event.clientX - lastX; scroll.scrollTop -= event.clientY - lastY; lastX = event.clientX; lastY = event.clientY; event.preventDefault();
+  });
+  scroll.addEventListener('pointerup', event => { if (dragging) { dragging = false; scroll.releasePointerCapture(event.pointerId); event.preventDefault(); } });
   const breadcrumb = element('nav', '', 'graph-breadcrumb');
   breadcrumb.setAttribute('aria-label', '依赖图焦点路径');
   const detail = element('div', '', 'graph-detail');

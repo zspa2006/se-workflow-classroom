@@ -1627,6 +1627,11 @@
     }));
   }
 
+  // graph/viewport.mjs
+  function clampScale(scale, min = 0.4, max = 2) {
+    return Math.min(max, Math.max(min, scale));
+  }
+
   // app.mjs
   var byId = (id) => document.getElementById(id);
   var directFile = location.protocol === "file:";
@@ -2480,14 +2485,79 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     reset.type = "button";
     toolbar.append(explanation, reset);
     view.append(toolbar);
+    const viewportTools = element("div", "", "graph-viewport-tools");
+    const zoom = { scale: 1 };
+    const applyZoom = (scale) => {
+      zoom.scale = clampScale(scale);
+      graph.style.transform = "scale(" + zoom.scale + ")";
+      draw();
+    };
+    for (const [label, factor] of [["\u653E\u5927", 1.25], ["\u7F29\u5C0F", 0.8]]) {
+      const control = element("button", label);
+      control.type = "button";
+      control.setAttribute("aria-label", label + "\u4F9D\u8D56\u56FE");
+      control.addEventListener("click", () => {
+        applyZoom(zoom.scale * factor);
+        control.focus();
+      });
+      viewportTools.append(control);
+    }
+    const fit = element("button", "\u9002\u5E94\u7A97\u53E3");
+    fit.type = "button";
+    fit.setAttribute("aria-label", "\u9002\u5E94\u7A97\u53E3");
+    fit.addEventListener("click", () => {
+      applyZoom(1);
+      fit.focus();
+    });
+    viewportTools.append(fit);
+    view.append(viewportTools);
     const scroll = element("div", "", "graph-scroll");
     scroll.tabIndex = 0;
     scroll.setAttribute("aria-label", vertical ? "\u6309\u6267\u884C\u6279\u6B21\u4ECE\u4E0A\u5230\u4E0B\u7684\u6D41\u7A0B\u56FE" : "\u53EF\u6A2A\u5411\u6EDA\u52A8\u7684\u4EFB\u52A1\u4F9D\u8D56\u56FE");
     const graph = element("div", "", vertical ? "graph graph-vertical" : "graph");
+    graph.style.transformOrigin = "top left";
     const canvas = element("canvas");
     canvas.setAttribute("aria-hidden", "true");
     graph.append(canvas);
     scroll.append(graph);
+    scroll.addEventListener("wheel", (event) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      applyZoom(zoom.scale * (event.deltaY < 0 ? 1.1 : 0.9));
+    }, { passive: false });
+    let dragging = false;
+    let spaceHeld = false;
+    let lastX = 0;
+    let lastY = 0;
+    scroll.addEventListener("keydown", (event) => {
+      if (event.code === "Space") spaceHeld = true;
+    });
+    scroll.addEventListener("keyup", (event) => {
+      if (event.code === "Space") spaceHeld = false;
+    });
+    scroll.addEventListener("pointerdown", (event) => {
+      if (event.button !== 1 && !spaceHeld) return;
+      dragging = true;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      scroll.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    scroll.addEventListener("pointermove", (event) => {
+      if (!dragging) return;
+      scroll.scrollLeft -= event.clientX - lastX;
+      scroll.scrollTop -= event.clientY - lastY;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      event.preventDefault();
+    });
+    scroll.addEventListener("pointerup", (event) => {
+      if (dragging) {
+        dragging = false;
+        scroll.releasePointerCapture(event.pointerId);
+        event.preventDefault();
+      }
+    });
     const breadcrumb = element("nav", "", "graph-breadcrumb");
     breadcrumb.setAttribute("aria-label", "\u4F9D\u8D56\u56FE\u7126\u70B9\u8DEF\u5F84");
     const detail = element("div", "", "graph-detail");
