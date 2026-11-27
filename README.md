@@ -21,6 +21,7 @@
 | 需求、设计、任务和测试方案的编号关联 | `pipeline.mjs` |
 | 讨论证据校验、任务状态与前置完成检查、回退范围 | `interaction.mjs` |
 | 提案轮次、逐人立场与共识确认条件 | `consensus.mjs` |
+| 讨论蒸馏结论、G2 门控判定与决策表导出 | `distill.mjs` |
 | 执行 Agent 职责、节点产物验证与交接 | `agents.mjs` |
 | 可观测记录、讨论确认与执行交互界面 | `observability.mjs` |
 | 前端构建和 Windows 程序打包 | `build.mjs` |

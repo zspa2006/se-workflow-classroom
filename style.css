@@ -2337,3 +2337,92 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.42); }
   .mast-actions button { padding: 6px 8px; font-size: 12px; }
   .brand-name { font-size: 14.5px; }
 }
+
+/* ===== Discussion Distillation Rail（作业一「讨论 → 决策表」蒸馏结论） ===== */
+.discussion-body { grid-template-columns: minmax(0, 1fr) 336px; align-items: start; }
+.discussion-main { display: grid; gap: 18px; min-width: 0; }
+.distill-rail {
+  position: sticky;
+  top: 84px;
+  min-width: 0;
+  max-height: calc(100vh - 110px);
+  overflow: auto;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
+}
+.distill-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
+.distill-head h2 { margin: 0; font-size: 13px; color: var(--ink); }
+.distill-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.distill-badge[data-state="empty"], .distill-badge[data-state="extracted"] { background: var(--surface-muted); color: var(--muted); }
+.distill-badge[data-state="round"] { background: rgba(217, 119, 6, 0.14); color: #b45309; }
+.distill-badge[data-state="confirmed"] { background: var(--green); color: #fff; }
+.distill-hint { margin: 0 0 10px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.distill-body { font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
+.distill-body h3 { margin: 12px 0 6px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em; color: var(--muted); }
+.distill-body h3:first-child { margin-top: 0; }
+.distill-headline {
+  margin: 0 0 4px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+.distill-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.distill-list li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-subtle); }
+.distill-list li strong { display: block; margin-bottom: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+.distill-list li p { margin: 2px 0 0; font-size: 12.5px; color: var(--ink); }
+.distill-list li span { display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+.distill-list li em {
+  display: block;
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11.5px;
+}
+.distill-list li[data-status="pending"] { border-color: #f0c98a; background: #fffbeb; }
+.distill-list li[data-status="ready"] { border-color: var(--soft-border); background: var(--soft); }
+.distill-empty { margin: 0; font-size: 11.5px; color: var(--muted); }
+.distill-stances { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 0; }
+.distill-stances div { padding: 6px 4px; border-radius: 9px; background: var(--surface-subtle); text-align: center; }
+.distill-stances strong { display: block; font-family: var(--font-mono); font-size: 15px; color: var(--ink); }
+.distill-stances span { font-size: 10.5px; color: var(--muted); }
+.distill-gate { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.distill-gate li { display: grid; grid-template-columns: 14px 1fr; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.distill-gate li b { color: #b45309; font-weight: 700; }
+.distill-gate li[data-ok="true"] b { color: var(--green); }
+.distill-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.distill-actions button { margin-top: 0; padding: 6px 10px; font-size: 11.5px; }
+#open-distill { color: var(--ink); }
+#distill-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+#distill-dialog { width: min(760px, calc(100% - 24px)); max-height: 86vh; }
+#distill-dialog .distill-body { max-height: 58vh; overflow: auto; }
+@media (max-width: 1120px) {
+  .discussion-body { grid-template-columns: 1fr; }
+  .distill-rail { position: static; max-height: none; }
+}

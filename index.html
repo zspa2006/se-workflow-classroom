@@ -70,6 +70,13 @@
           </svg>
           <span>DeepSeek 密钥</span>
         </button>
+        <button id="open-distill" type="button" aria-haspopup="dialog">
+          <svg class="btn-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M2.25 3.25h11.5l-4.4 4.95v4.1l-2.7 1.3v-5.4L2.25 3.25Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+          <span>蒸馏结论</span>
+          <span id="distill-count">待提炼</span>
+        </button>
         <button id="open-activity" type="button" aria-haspopup="dialog">
           <svg class="btn-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M1.75 8H4.25L6.25 3.5L9.5 12.5L11.75 8H14.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -96,19 +103,29 @@
         </div>
       </div>
       <div class="discussion-body">
-        <div class="discussion-composer">
-          <div class="field-head">
-            <label for="transcript">讨论原文</label>
-            <span class="field-tip">按发言人换行记录，提取时自动校验行号与逐字引文</span>
+        <div class="discussion-main">
+          <div class="discussion-composer">
+            <div class="field-head">
+              <label for="transcript">讨论原文</label>
+              <span class="field-tip">按发言人换行记录，提取时自动校验行号与逐字引文</span>
+            </div>
+            <textarea id="transcript" maxlength="4000" rows="5" placeholder="产品同学：……&#10;前端 Agent：……"></textarea>
+            <div class="execution-actions">
+              <button id="discussion-example" type="button">填入讨论示例</button>
+              <button id="extract-discussion" class="btn-solid" type="button">提炼讨论主线</button>
+            </div>
+            <p id="discussion-error" class="error" role="alert"></p>
           </div>
-          <textarea id="transcript" maxlength="4000" rows="5" placeholder="产品同学：……&#10;前端 Agent：……"></textarea>
-          <div class="execution-actions">
-            <button id="discussion-example" type="button">填入讨论示例</button>
-            <button id="extract-discussion" class="btn-solid" type="button">提炼讨论主线</button>
-          </div>
-          <p id="discussion-error" class="error" role="alert"></p>
+          <div id="discussion-result"></div>
         </div>
-        <div id="discussion-result"></div>
+        <aside class="distill-rail" id="distill-rail" aria-labelledby="distill-title">
+          <div class="distill-head">
+            <h2 id="distill-title">蒸馏结论</h2>
+            <span class="distill-badge" id="distill-badge">待提炼</span>
+          </div>
+          <p class="distill-hint">作业一「讨论 → 决策表 D-xx」的一屏结论：明确意见、待确认项、立场与 G2 门控。</p>
+          <div class="distill-body" id="distill-rail-body"></div>
+        </aside>
       </div>
     </section>
 
@@ -316,6 +333,18 @@
     <ol id="activity" aria-live="polite"></ol>
     <p id="activity-empty" class="hint">运行工作流或登记讨论立场后，记录会显示在这里。</p>
     <div class="dialog-actions"><button id="export-activity" type="button">导出运行与交互记录</button></div>
+  </dialog>
+
+  <dialog id="distill-dialog" aria-labelledby="distill-dialog-title">
+    <div class="dialog-head">
+      <div>
+        <h2 id="distill-dialog-title">讨论蒸馏结论</h2>
+        <p class="hint">明确意见、待确认项、逐人立场与 G2 讨论门控；结论随讨论操作实时更新。</p>
+      </div>
+      <form method="dialog"><button type="submit">关闭</button></form>
+    </div>
+    <div class="distill-body" id="distill-dialog-body"></div>
+    <div class="dialog-actions"><button id="export-decisions" type="button">导出决策表 Markdown</button></div>
   </dialog>
 
   <dialog id="key-dialog" aria-labelledby="key-title">
