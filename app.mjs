@@ -9,6 +9,8 @@ import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
 import { orderLayers, transitiveUpstream, transitiveDownstream, focusBreadcrumb, groupByDepth } from './graph/layout.mjs';
 import { taskDepths, criticalChain, rollbackCausality } from './graph/batches.mjs';
 import { clampScale, fitScale, scaledSize } from './graph/viewport.mjs';
+import { stepSpring, samplePolyline, reducedMotion, animateFlipSlide, animateNumber,
+  syncPillThumb, enhanceSelect, syncCustomSelect, createNeuHScroll, drawBeamAlongPolyline } from './motion.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -25,7 +27,13 @@ const view = byId('view');
 const keyDialog = byId('key-dialog');
 const keyInput = byId('key-input');
 const tabs = [...document.querySelectorAll('[data-view]')];
+const tabBar = tabs[0]?.parentElement;
+const wsNav = byId('workspace-nav');
 let result, arrangement, observer;
+let stopGraphMotion;
+let viewCleanups = [];
+let lastMetricValues = null;
+let metricCleanups = [];
 let pageKey, apiStatus;
 let active = 'tasks';
 let selected = '';
@@ -33,6 +41,7 @@ let requirementFilter = '';
 let busy = false;
 let pipeline, draft;
 let chainView = 'idea';
+let chainExpanded = false;
 let runningStage = '';
 let graphLayout = 'horizontal';
 let inputCollapsed = false;
@@ -41,11 +50,55 @@ const steps = [
   ['tests', '测试方案'], ['schedule', '任务编排'], ['feedback', '设计回填'],
 ];
 const stepLabels = new Map(steps);
+
+function renderRailActivity(events = []) {
+  const list = byId('rail-activity-list');
+  const tip = byId('rail-activity-tip');
+  if (!list) return;
+  const recent = events.slice(-4).reverse();
+  if (!recent.length) {
+    list.replaceChildren();
+    if (tip) tip.hidden = false;
+    return;
+  }
+  list.replaceChildren(...recent.map(event => {
+    const li = element('li');
+    const time = element('time', new Date(event.time).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'}));
+    const title = element('strong', [event.stage, event.agent, event.status].filter(Boolean).join(' · '));
+    const msg = document.createTextNode(' · ' + event.message);
+    li.append(time, title, msg);
+    return li;
+  }));
+  if (tip) tip.hidden = false;
+}
+
+function updateRightRailContext(inspectingId = '', inspectorEl = null) {
+  const heading = byId('right-ctx-heading');
+  const chip = byId('right-ctx-chip');
+  const inspectorSlot = byId('rail-inspector-slot');
+  const activitySlot = byId('rail-activity-slot');
+  if (!heading || !chip || !inspectorSlot || !activitySlot) return;
+  if (inspectingId && inspectorEl && active === 'graph') {
+    heading.textContent = '节点检视 · ' + inspectingId;
+    chip.textContent = '图节点联动';
+    inspectorSlot.replaceChildren(inspectorEl);
+    inspectorSlot.hidden = false;
+    activitySlot.hidden = true;
+  } else {
+    heading.textContent = '最近运行与交互摘要';
+    chip.textContent = '实时同步';
+    inspectorSlot.replaceChildren();
+    inspectorSlot.hidden = true;
+    activitySlot.hidden = false;
+  }
+}
+
 const monitor = createObservability({
   request: requestStage, ready: ensureReady, getResult: () => result, getArrangement: () => arrangement,
   download: downloadFile, isBusy: () => busy, setBusy: lock,
   renderCases: taskCases, openPlan: () => selectWorkspace(false, true),
   refreshExecution: () => { if (result && active === 'execution') render(); },
+  onActivityChange: renderRailActivity,
   adopt: text => {
     inputMode.value = 'idea';
     spec.value = text;
@@ -53,27 +106,63 @@ const monitor = createObservability({
   },
 });
 
+function syncTabIndicator() {
+  syncPillThumb(tabBar);
+  syncPillThumb(wsNav);
+}
+window.addEventListener('resize', () => syncTabIndicator());
+
 function selectWorkspace(discussion, focus = false) {
+  if (discussion) {
+    stopGraphMotion?.();
+    stopGraphMotion = undefined;
+  }
   byId('workspace').hidden = discussion;
   byId('discussion-panel').hidden = !discussion;
   byId('workspace-plan').setAttribute('aria-pressed', String(!discussion));
   byId('workspace-discussion').setAttribute('aria-pressed', String(discussion));
-  if (!discussion && result && active === 'graph') render();
+  syncPillThumb(wsNav);
+  if (!discussion) {
+    syncPillThumb(tabBar);
+    if (result && active === 'graph') render();
+  }
   if (focus) byId(discussion ? 'workspace-discussion' : 'workspace-plan').focus();
 }
 
+function updateInputSummary() {
+  const summary = byId('input-summary');
+  if (!summary) return;
+  const exampleText = example.selectedOptions[0]?.textContent || '自定义输入';
+  summary.textContent = modeLabel() + ' · ' + exampleText + ' · 每批上限 ' + capacity.value;
+}
+
+const leftCollapse = byId('left-collapse');
+leftCollapse?.addEventListener('transitionend', () => leftCollapse.classList.remove('is-animating'));
+
 function showInput(visible) {
   inputCollapsed = !visible;
-  byId('input-body').hidden = !visible;
+  if (leftCollapse) {
+    leftCollapse.classList.add('is-animating');
+    leftCollapse.classList.toggle('is-collapsed', !visible);
+    leftCollapse.setAttribute('aria-hidden', String(!visible));
+  }
   byId('workspace').classList.toggle('input-collapsed', !visible);
   const toggle = byId('toggle-input');
   toggle.setAttribute('aria-expanded', String(visible));
-  toggle.textContent = visible ? '收起输入' : '展开输入';
+  byId('toggle-input-label').textContent = visible ? '收起左栏' : '展开左栏';
+  const summary = byId('input-summary');
+  if (summary) summary.hidden = visible;
+  updateInputSummary();
+  requestAnimationFrame(() => syncTabIndicator());
 }
 
 byId('workspace-plan').addEventListener('click', () => selectWorkspace(false));
 byId('workspace-discussion').addEventListener('click', () => selectWorkspace(true));
 byId('toggle-input').addEventListener('click', () => showInput(inputCollapsed));
+byId('toggle-chain')?.addEventListener('click', () => {
+  chainExpanded = false;
+  renderChain();
+});
 byId('open-activity').addEventListener('click', () => byId('activity-dialog').showModal());
 
 function element(tag, content = '', className = '') {
@@ -87,15 +176,24 @@ example.add(new Option('自定义输入', ''));
 examples.forEach(({name}, index) => example.add(new Option(name, String(index))));
 for (let n = 1; n <= 8; n++) capacity.add(new Option(String(n), String(n)));
 capacity.value = '4';
+enhanceSelect(inputMode);
+enhanceSelect(capacity);
+enhanceSelect(example);
 
 function modeLabel() {
   return inputMode.value === 'idea' ? '产品想法' : '设计规格';
 }
 
 function runLabel() {
-  if (inputMode.value === 'design') return draft ? '继续生成测试方案 ↗' : '运行任务编排 ↗';
-  if (pipeline?.requirements && !pipeline.testPlan) return '继续完整流程 ↗';
-  return '运行完整流程 ↗';
+  if (inputMode.value === 'design') return draft ? '继续生成测试方案' : '运行任务编排';
+  if (pipeline?.requirements && !pipeline.testPlan) return '继续完整流程';
+  return '运行完整流程';
+}
+
+function setRunLabel(text) {
+  const label = byId('run-label');
+  if (label) label.textContent = text;
+  else run.textContent = text;
 }
 
 function updateInput() {
@@ -104,17 +202,25 @@ function updateInput() {
   const field = inputMode.value === 'idea' ? 'idea' : 'spec';
   const match = examples.findIndex(item => item[field] === spec.value);
   example.value = match < 0 ? '' : String(match);
+  syncCustomSelect(inputMode);
+  syncCustomSelect(capacity);
+  syncCustomSelect(example);
   byId('input-error').textContent = '';
+  updateInputSummary();
 }
 
 function statusMessage(title, body) {
   notice.hidden = false;
   byId('results').hidden = true;
+  byId('metrics').hidden = true;
   byId('exports').hidden = true;
   byId('result-title').textContent = '工作流输出';
   byId('provenance').textContent = '';
   byId('notice-title').textContent = title;
   byId('notice-body').textContent = body;
+  updateRightRailContext();
+  stopGraphMotion?.();
+  stopGraphMotion = undefined;
   observer?.disconnect();
 }
 
@@ -122,10 +228,12 @@ function changeSpec(preserveDiscussion = false) {
   result = undefined;
   pipeline = undefined;
   draft = undefined;
+  lastMetricValues = null;
   chainView = 'idea';
+  chainExpanded = false;
   if (preserveDiscussion !== true) monitor.reset();
   updateInput();
-  run.textContent = runLabel();
+  setRunLabel(runLabel());
   statusMessage('等待运行工作流', inputMode.value === 'idea'
     ? '输入想法或选择案例，生成需求、设计和测试方案，查看实现编排与设计回填。'
     : '输入已有设计规格，查看编码、测试和评审的依赖关系。');
@@ -208,8 +316,11 @@ byId('key-form').addEventListener('submit', event => {
 function lock(value) {
   busy = value;
   for (const control of [spec, inputMode, example, capacity, file, replay, run]) control.disabled = value;
+  syncCustomSelect(inputMode);
+  syncCustomSelect(capacity);
+  syncCustomSelect(example);
   notice.classList.toggle('busy', value);
-  run.textContent = value ? '正在生成…' : runLabel();
+  setRunLabel(value ? '正在生成…' : runLabel());
 }
 
 async function requestStage(endpoint, body, track = true) {
@@ -251,6 +362,7 @@ async function runPipeline(idea) {
   pipeline ??= {idea};
   if (!pipeline.requirements) {
     runningStage = 'requirements';
+    chainExpanded = true;
     renderChain();
     statusMessage('正在生成需求规格', '作业一 · 将产品想法整理为编号需求和验收条件。');
     const data = await requestStage('requirements', {idea});
@@ -259,6 +371,7 @@ async function runPipeline(idea) {
   }
   if (!pipeline.design) {
     runningStage = 'design';
+    chainExpanded = true;
     renderChain();
     statusMessage('正在生成设计规格', '根据需求规格生成总体设计、模块划分和接口约定。');
     const data = await requestStage('design', {requirements: pipeline.requirements});
@@ -271,11 +384,13 @@ async function runPipeline(idea) {
 async function runImplementation(source) {
   if (!draft) {
     runningStage = 'schedule';
+    chainExpanded = true;
     renderChain();
     statusMessage('正在分解开发任务', 'PM Agent 正在按设计规格分解模块、接口契约和编码任务。');
     draft = (await requestStage('decompose', {...source, draftOnly: true})).plan;
   }
   runningStage = 'tests';
+  chainExpanded = true;
   renderChain();
   statusMessage('正在制定测试方案', '用例通过校验后，和编码、评审一起进入任务集，再计算执行批次。');
   const {testPlan, ...data} = await requestStage('test-plan', {...source, plan: draft, draftOnly: true});
@@ -378,7 +493,7 @@ replay.addEventListener('change', async () => {
     show({provider, spec: sourceDesign, plan: restoredPlan, model, generatedAt, pipeline, testPlan, mode: 'imported'});
     spec.value = input;
     updateInput();
-    run.textContent = runLabel();
+    setRunLabel(runLabel());
     renderChain();
   } catch (error) {
     byId('input-error').textContent = error instanceof SyntaxError ? '结果文件不是有效的 JSON。' : error.message;
@@ -390,16 +505,21 @@ function show(data) {
   result = data;
   selected = '';
   requirementFilter = '';
+  chainExpanded = false;
+  lastMetricValues = null;
   byId('result-title').textContent = result.plan.project;
   byId('provenance').textContent =
     (data.mode === 'live' ? '现场生成 · DeepSeek API' : '已导入 DeepSeek 结果') + ' · ' + data.model;
   notice.hidden = true;
   byId('results').hidden = false;
+  byId('metrics').hidden = false;
   byId('exports').hidden = false;
   render();
+  syncTabIndicator();
 }
 
 capacity.addEventListener('change', () => {
+  updateInputSummary();
   if (!result) return;
   arrangement = schedule(result.plan, Number(capacity.value));
   monitor.log('重新编排', '完成', '每批并行上限 ' + capacity.value + '，共 ' + arrangement.rounds.length + ' 批');
@@ -440,14 +560,25 @@ function openResults(viewName) {
 byId('go-tasks').addEventListener('click', () => openResults('tasks'));
 byId('go-graph').addEventListener('click', () => openResults('graph'));
 
-function openChain(step) {
-  chainView = step;
-  renderChain();
+const chainDrawer = byId('chain-drawer');
+chainDrawer?.addEventListener('transitionend', () => chainDrawer.classList.remove('is-animating'));
+
+function openChain(step, allowToggle = false) {
   if (step === 'schedule') {
+    chainExpanded = false;
+    renderChain();
     openResults('graph');
     return;
   }
-  byId('chain-content').focus();
+  if (allowToggle && chainExpanded && chainView === step && !runningStage) {
+    chainExpanded = false;
+    renderChain();
+    return;
+  }
+  chainView = step;
+  chainExpanded = true;
+  renderChain();
+  byId('chain-content').focus({preventScroll: true});
 }
 
 function designCard(part) {
@@ -470,17 +601,34 @@ function renderChain() {
   };
   const owners = {idea:'参会者 / 负责人', requirements:planningAgents.requirements, design:planningAgents.design,
     tests:planningAgents['test-plan'], schedule:planningAgents.decompose + ' / 编排器', feedback:'编排器'};
-  byId('chain-steps').replaceChildren(...steps.map(([id, label]) => {
-    const step = element('button', label);
+  byId('chain-steps').replaceChildren(...steps.map(([id, label], index) => {
+    const step = element('button');
     step.type = 'button';
     step.disabled = !available[id];
-    step.setAttribute('aria-pressed', String(id === chainView));
-    step.append(element('span', id === runningStage ? '生成中' : available[id]
-      ? (id === 'idea' ? '原始输入' : '可查看') : '待生成'));
-    step.append(element('span', owners[id], 'chain-owner'));
-    step.addEventListener('click', () => openChain(id));
+    const isActive = chainExpanded && id === chainView;
+    step.setAttribute('aria-pressed', String(isActive));
+    step.setAttribute('aria-expanded', String(isActive));
+    if (id === runningStage) step.classList.add('is-generating');
+    const head = element('span', '', 'chain-step-head');
+    head.append(
+      element('span', '0' + (index + 1), 'chain-step-num'),
+      element('span', id === runningStage ? '生成中' : available[id]
+        ? (id === 'idea' ? '原始输入' : '可查看') : '待生成', 'chain-step-state')
+    );
+    step.append(head, element('span', label), element('span', owners[id], 'chain-owner'));
+    step.addEventListener('click', () => openChain(id, true));
     return step;
   }));
+  const drawer = byId('chain-drawer');
+  if (drawer) {
+    const isCollapsed = !chainExpanded;
+    if (drawer.classList.contains('is-collapsed') !== isCollapsed) drawer.classList.add('is-animating');
+    drawer.classList.toggle('is-collapsed', isCollapsed);
+    drawer.setAttribute('aria-hidden', String(isCollapsed));
+  }
+  const drawerLabel = byId('chain-drawer-label');
+  if (drawerLabel) drawerLabel.textContent = (stepLabels.get(chainView) ?? '阶段产物') + ' · 阶段产物详情';
+  if (!chainExpanded) return;
   const content = byId('chain-content');
   content.replaceChildren();
   content.scrollTop = 0;
@@ -555,12 +703,18 @@ function locateGraphTask(id) {
 }
 
 function metrics() {
+  for (const cancel of metricCleanups) cancel();
+  metricCleanups = [];
   const tasks = result.plan.tasks;
   const runtime = monitor.getRuntime();
   const counts = Object.fromEntries(Object.keys(stateLabels).map(state => [state, 0]));
   tasks.forEach(task => counts[taskState(task.id, runtime, arrangement)]++);
+
   const statusCard = element('div', '', 'metric metric-status');
-  statusCard.append(element('strong', tasks.length), element('span', '任务状态分布', 'metric-label'));
+  const statusHead = element('div', '', 'metric-head');
+  statusHead.append(element('span', '任务状态分布', 'metric-label'), element('span', '总任务', 'metric-chip chip-indigo'));
+  const totalEl = element('strong', tasks.length);
+  statusCard.append(statusHead, totalEl);
   const stack = element('div', '', 'metric-stack');
   stack.setAttribute('role', 'img');
   stack.setAttribute('aria-label', Object.keys(stateLabels).map(state => stateLabels[state] + ' ' + counts[state] + ' 项').join('，'));
@@ -571,26 +725,69 @@ function metrics() {
     segment.title = stateLabels[state] + ' ' + counts[state] + ' 项';
     stack.append(segment);
   }
-  statusCard.append(stack, element('span', Object.keys(stateLabels).map(state => stateLabels[state] + ' ' + counts[state]).join(' · '), 'metric-detail'));
+  const compactCounts = [
+    counts.done ? '完成 ' + counts.done : '',
+    counts.waiting ? '等补 ' + counts.waiting : '',
+    counts.running ? '进行 ' + counts.running : '',
+    counts.ready ? '就绪 ' + counts.ready : '',
+    counts.failed ? '失败 ' + counts.failed : '',
+    counts.pending ? '待 ' + counts.pending : '',
+  ].filter(Boolean).join(' · ') || '暂无';
+  statusCard.append(stack, element('span', compactCounts, 'metric-detail'));
+
   const requirementLinks = new Set(tasks.flatMap(task => task.requirements));
   const tested = tasks.filter(task => task.test || task.review).length;
   const parallelTasks = arrangement.rounds.filter(batch => batch.length > 1).flat().length;
-  const proportionCard = (value, total, label) => {
+  const proportionCard = (value, total, label, chipText, chipClass, fillClass, detailText, prevPct) => {
     const card = element('div', '', 'metric');
+    const head = element('div', '', 'metric-head');
+    head.append(element('span', label, 'metric-label'), element('span', chipText, 'metric-chip ' + chipClass));
     const percent = total ? Math.round(value / total * 100) : 0;
-    card.append(element('strong', percent + '%'), element('span', label, 'metric-label'));
+    const numEl = element('strong', percent + '%');
+    card.append(head, numEl);
     const bar = element('span', '', 'metric-bar');
-    bar.append(element('span', '', 'metric-fill'));
-    bar.firstElementChild.style.width = percent + '%';
+    const fill = element('span', '', 'metric-fill' + (fillClass ? ' ' + fillClass : ''));
+    bar.append(fill);
+    if (reducedMotion()) {
+      fill.style.width = percent + '%';
+    } else {
+      fill.style.width = (prevPct ?? 0) + '%';
+      requestAnimationFrame(() => { if (fill.isConnected) fill.style.width = percent + '%'; });
+    }
     bar.setAttribute('role', 'img');
     bar.setAttribute('aria-label', value + ' / ' + total);
-    card.append(bar, element('span', value + ' / ' + total, 'metric-detail'));
-    return card;
+    card.append(bar, element('span', detailText, 'metric-detail'));
+    return {card, numEl, percent};
   };
-  byId('metrics').replaceChildren(statusCard,
-    proportionCard(requirementLinks.size, result.plan.requirements.length, '需求已关联'),
-    proportionCard(parallelTasks, tasks.length, '任务处于并行批次'),
-    proportionCard(tested, tasks.length, '任务绑定测试或评审'), statusLegend(stateLabels));
+
+  const reqTotal = result.plan.requirements.length;
+  const reqMetric = proportionCard(
+    requirementLinks.size, reqTotal, '需求覆盖率',
+    requirementLinks.size === reqTotal ? '全关联' : '覆盖', 'chip-green', 'metric-fill-green',
+    requirementLinks.size + ' / ' + reqTotal + ' 需求绑定实现与校验', lastMetricValues?.reqPct,
+  );
+  const parMetric = proportionCard(
+    parallelTasks, tasks.length, '并行批次占比',
+    '上限 ' + arrangement.capacity, 'chip-indigo', '',
+    parallelTasks + ' / ' + tasks.length + ' 处于多节点并行泳道', lastMetricValues?.parPct,
+  );
+  const testMetric = proportionCard(
+    tested, tasks.length, '质检闭环率',
+    '单测+评审', 'chip-amber', 'metric-fill-amber',
+    tested + ' / ' + tasks.length + ' 项为测试与评审门禁', lastMetricValues?.testPct,
+  );
+  const strip = element('div', '', 'metrics-strip');
+  strip.append(statusCard, reqMetric.card, parMetric.card, testMetric.card);
+  byId('metrics').replaceChildren(strip);
+  if (lastMetricValues) {
+    metricCleanups.push(
+      animateNumber(totalEl, lastMetricValues.total, tasks.length, ''),
+      animateNumber(reqMetric.numEl, lastMetricValues.reqPct, reqMetric.percent, '%'),
+      animateNumber(parMetric.numEl, lastMetricValues.parPct, parMetric.percent, '%'),
+      animateNumber(testMetric.numEl, lastMetricValues.testPct, testMetric.percent, '%'),
+    );
+  }
+  lastMetricValues = {total: tasks.length, reqPct: reqMetric.percent, parPct: parMetric.percent, testPct: testMetric.percent};
 }
 
 function caseInstructions(test) {
@@ -612,49 +809,54 @@ function taskCases(task) {
 
 function taskCard(task, full = false, interactive = false, affectedIds = new Set()) {
   const card = element(interactive ? 'button' : 'article', '', 'task');
+  card.dataset.role = task.role;
   const runtime = monitor.getRuntime();
   const state = taskState(task.id, runtime, arrangement);
   const affected = affectedIds.has(task.id);
-  
-  if (interactive) {
-    if (task.role === '前端') card.style.borderLeft = '4px solid #3498db';
-    if (task.role === '后端') card.style.borderLeft = '4px solid #e74c3c';
-    if (task.role === '测试') card.style.borderLeft = '4px solid #f39c12';
-    if (task.role === '产品设计') card.style.borderLeft = '4px solid #9b59b6';
-    if (task.role === '评审') card.style.borderLeft = '4px solid #23836a';
-  }
 
   const stage = taskStage(task);
   const agent = agentForTask(task);
-  card.append(statusBadge(state, stateLabels[state], {rollbackAffected: affected}),
+  const head = element('div', '', 'task-head');
+  head.append(statusBadge(state, stateLabels[state], {rollbackAffected: affected}));
+  card.append(head,
     element('span', task.id + ' · ' + (stage === '编码' ? '编码 / ' + task.role : stage) +
-    ' · ' + task.requirements.join('、'), 'task-meta'),
+      ' · ' + task.requirements.join('、'), 'task-meta'),
     element('strong', task.title), element('span', agent.name, 'task-agent'));
-    
+
   if (full) {
-    card.append(
-      element('p', '职责：' + agent.duty),
-      element('p', '声明输入：' + (task.inputs.join('、') || 'Design Spec')),
-      element('p', '交付：' + task.output),
-      element('p', '验收：' + task.acceptance));
-    if (result.pipeline) card.append(element('p', '设计来源：' + task.designs.join('、')));
-    if (task.test) card.append(element('p', '测试目标及失败定位范围：' + task.test.targets.join('、')), ...taskCases(task));
-    if (task.review) card.append(element('p', '评审对应编码：' + task.review.target));
+    const specs = element('div', '', 'task-specs');
+    const addSpec = (key, val) => {
+      const row = element('div', '', 'task-spec-row');
+      row.append(element('span', key, 'spec-key'), element('span', val, 'spec-val'));
+      specs.append(row);
+    };
+    addSpec('职责', agent.duty);
+    addSpec('声明输入', task.inputs.join('、') || 'Design Spec');
+    addSpec('交付', task.output);
+    addSpec('验收', task.acceptance);
+    if (result.pipeline) addSpec('设计来源', task.designs.join('、'));
+    if (task.test) addSpec('测试定位范围', task.test.targets.join('、'));
+    if (task.review) addSpec('评审对应编码', task.review.target);
     const added = arrangement.edges.filter(edge => edge.to === task.id && !task.inputs.includes(edge.artifact));
-    if (added.length) card.append(element('p', '编排补齐的输入：' + added.map(edge => edge.artifact).join('、')));
+    if (added.length) addSpec('编排补齐输入', added.map(edge => edge.artifact).join('、'));
+    card.append(specs);
+    if (task.test) card.append(...taskCases(task));
   }
   return card;
 }
 
+let codeTimer;
+  const codeDialog = byId('code-dialog');
+  const codeViewer = byId('code-viewer');
+  const codeHScroll = codeViewer ? createNeuHScroll(codeViewer, '代码横向位置滑块') : null;
+  if (codeDialog && codeHScroll) codeDialog.append(codeHScroll.wrap);
+  codeDialog?.addEventListener('close', () => {
+    clearTimeout(codeTimer);
+    codeTimer = undefined;
+  });
+
 byId('gen-code').addEventListener('click', () => {
   const projectName = result ? result.plan.project : '当前项目';
-  
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(244, 247, 244, 0.85); backdrop-filter: blur(4px); z-index:99999; display:flex; justify-content:center; align-items:center;';
-  
-  const box = document.createElement('div');
-  box.style.cssText = 'background:#ffffff; width:80%; max-width:850px; border-radius:12px; border:1px solid #d6e2da; box-shadow: 0 10px 40px rgba(11, 101, 76, 0.15); overflow:hidden; text-align:left; display:flex; flex-direction:column;';
-  
   const codeStr = `
 // 任务：${projectName} - 核心后端接口与数据模型
 // 框架：Node.js + TypeScript + Express
@@ -686,63 +888,77 @@ export const executeCoreTask = async (req: Request, res: Response) => {
   }
 };`;
 
-  box.innerHTML = '<div style="background:#f8faf9; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #d6e2da;">'
-                + '<div style="display:flex; align-items:center; gap:10px;">'
-                + '<span style="color:#0b654c; font-weight:bold; font-size:14px;">后端代码示例</span>'
-                + '<span style="background:#e9f3ed; color:#0b654c; font-size:12px; padding:2px 8px; border-radius:12px; border:1px solid #c2dfd3;">内置展示片段 · 待适配与验证</span>'
-                + '</div>'
-                + '<button id="close-code-btn" style="background:#0b654c; color:white; border:none; padding:6px 16px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px; transition:0.2s;" onmouseover="this.style.background=\'#094b39\'" onmouseout="this.style.background=\'#0b654c\'">关闭</button>'
-                + '</div>'
-                + '<div style="background:#ffffff; padding:20px; overflow:auto; max-height:60vh;">'
-                + '<pre style="margin:0; font-family:Consolas, monospace; font-size:14px; line-height:1.6;"><code id="code-content"></code></pre>'
-                + '</div>';
-  
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
+  const codeEl = byId('code-content');
+  clearTimeout(codeTimer);
+  codeEl.textContent = '';
+  if (!codeDialog.open) codeDialog.showModal();
 
-  const codeEl = document.getElementById('code-content');
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    codeEl.textContent = codeStr;
+    codeHScroll?.sync();
+    return;
+  }
+
   let i = 0;
-  
   function typeCode() {
+    if (!codeDialog.open) return;
     if (i < codeStr.length) {
-      const chunk = codeStr.slice(i, i + 5);
-      codeEl.textContent += chunk;
-      
+      codeEl.textContent += codeStr.slice(i, i + 5);
       i += 5;
-      codeEl.parentElement.scrollTop = codeEl.parentElement.scrollHeight;
-      setTimeout(typeCode, 10); 
+      codeEl.parentElement.parentElement.scrollTop = codeEl.parentElement.parentElement.scrollHeight;
+      codeTimer = setTimeout(typeCode, 10);
+    } else {
+      codeHScroll?.sync();
     }
   }
-  
   typeCode();
-
-  document.getElementById('close-code-btn').addEventListener('click', () => {
-    overlay.remove();
-  });
 });
 
 function listTasks(affectedIds) {
-  const table = element('details');
-  table.open = true;
-  table.append(element('summary', '需求与验收 · ' + result.plan.requirements.length + ' 条已关联任务与测试'));
-  table.append(element('p', '点击需求编号，查看支撑该需求的任务和验收。', 'hint trace-hint'));
-  const list = element('ul', '', 'requirements');
-  const taskList = element('div', '', 'task-list');
+  const filterBar = element('div', '', 'trace-filter-bar');
+  const pills = element('div', '', 'trace-pills');
+  pills.setAttribute('aria-label', '按需求编号筛选任务');
+  const allPill = element('button', '全部需求', 'trace-button');
+  allPill.type = 'button';
+  pills.append(allPill);
+
   const matchStatus = element('div', '', 'hint');
   matchStatus.setAttribute('role', 'status');
-  const clear = element('button', '显示全部任务');
-  clear.type = 'button';
-  const traceButtons = new Map();
+  matchStatus.style.margin = '0';
+  filterBar.append(pills, matchStatus);
+
+  const activeBanner = element('div', '', 'trace-active-banner');
+  activeBanner.hidden = true;
+
+  const table = element('details');
+  table.open = false;
+  table.append(element('summary', '需求与验收明细 · ' + result.plan.requirements.length + ' 条（可展开或点上方编号筛选）'));
+  const list = element('ul', '', 'requirements');
+  const taskList = element('div', '', 'task-list');
+  const pillButtons = new Map();
+  const detailButtons = new Map();
+  const reqById = new Map(result.plan.requirements.map(req => [req.id, req]));
 
   function filter(id) {
     requirementFilter = id;
-    for (const [reqId, button] of traceButtons) button.setAttribute('aria-pressed', String(id === reqId));
+    allPill.setAttribute('aria-pressed', String(!id));
+    for (const [reqId, button] of pillButtons) button.setAttribute('aria-pressed', String(id === reqId));
+    for (const [reqId, button] of detailButtons) button.setAttribute('aria-pressed', String(id === reqId));
+    const activeReq = id ? reqById.get(id) : undefined;
+    activeBanner.hidden = !activeReq;
+    if (activeReq) {
+      activeBanner.replaceChildren(
+        element('strong', activeReq.id + ' · ' + activeReq.text),
+        element('span', '验收标准：' + activeReq.acceptance)
+      );
+    }
     const matches = result.plan.tasks.filter(task => !id || task.requirements.includes(id));
-    matchStatus.textContent = (id ? id + ' 对应' : '全部') + ' ' + matches.length + ' 项任务';
-    clear.hidden = !id;
-    taskList.replaceChildren(...matches.map(task => {
+    matchStatus.textContent = (id ? id + ' 对应 ' : '全部 ') + matches.length + ' 项任务';
+    taskList.replaceChildren(...matches.map((task, idx) => {
       const card = taskCard(task, true, false, affectedIds);
-      const locate = element('button', '在依赖图中查看', 'task-link');
+      card.classList.add('stagger-in');
+      card.style.setProperty('--stagger', String(Math.min(idx, 8)));
+      const locate = element('button', '在依赖图中查看 →', 'task-link');
       locate.type = 'button';
       locate.addEventListener('click', () => locateGraphTask(task.id));
       card.append(locate);
@@ -750,27 +966,28 @@ function listTasks(affectedIds) {
     }));
   }
 
-  clear.addEventListener('click', () => {
-    const previous = traceButtons.get(requirementFilter);
-    filter('');
-    previous?.focus();
-  });
+  allPill.addEventListener('click', () => filter(''));
   for (const requirement of result.plan.requirements) {
+    const pill = element('button', requirement.id, 'trace-button');
+    pill.type = 'button';
+    pill.setAttribute('aria-label', '按需求 ' + requirement.id + ' 筛选任务');
+    pill.addEventListener('click', () => filter(requirementFilter === requirement.id ? '' : requirement.id));
+    pillButtons.set(requirement.id, pill);
+    pills.append(pill);
+
     const item = element('li', '', 'trace-row');
     const trace = element('button', requirement.id, 'trace-button');
     trace.type = 'button';
     trace.setAttribute('aria-label', '查看 ' + requirement.id + ' 的关联任务');
     trace.addEventListener('click', () => filter(requirementFilter === requirement.id ? '' : requirement.id));
-    traceButtons.set(requirement.id, trace);
+    detailButtons.set(requirement.id, trace);
     const description = element('div');
     description.append(element('strong', requirement.text), element('br'), element('span', '验收：' + requirement.acceptance));
     item.append(trace, description);
     list.append(item);
   }
   table.append(list);
-  const toolbar = element('div', '', 'trace-toolbar');
-  toolbar.append(matchStatus, clear);
-  view.append(table, toolbar, taskList);
+  view.append(filterBar, activeBanner, table, taskList);
   filter(requirementFilter);
 }
 
@@ -781,7 +998,12 @@ function showRounds(tasksById, affectedIds) {
   const chainBatches = new Set(chain.map(id => arrangement.rounds.findIndex(batch => batch.includes(id))));
   view.append(element('p', '当前每批最多 ' + arrangement.capacity + ' 项。依赖深度最长链覆盖 ' + chainBatches.size + ' 个批次。', 'hint'));
   arrangement.rounds.forEach((ids, index) => {
+    const block = element('div', '', 'round-block stagger-in');
+    block.style.setProperty('--stagger', String(Math.min(index, 8)));
     const round = element('section', '', 'round');
+    const head = element('div', '', 'round-head');
+    head.append(element('h3', '第 ' + (index + 1) + ' 批 · ' + ids.length + ' 项'));
+    if (chainBatches.has(index)) head.append(element('span', '关键路径', 'round-critical-pill'));
     const tasks = element('div', '', 'task-list');
     const cards = ids.map(id => {
       const card = taskCard(tasksById.get(id), false, false, affectedIds);
@@ -794,8 +1016,12 @@ function showRounds(tasksById, affectedIds) {
       return card;
     });
     tasks.append(...cards);
-    round.append(element('h3', '第 ' + (index + 1) + ' 批 · ' + ids.length + ' 项' + (chainBatches.has(index) ? ' · 关键路径' : '')), tasks);
-    view.append(round);
+    round.append(head, tasks);
+    const hScroll = createNeuHScroll(tasks, '第 ' + (index + 1) + ' 批横向位置滑块');
+    viewCleanups.push(hScroll.destroy);
+    block.append(round, hScroll.wrap);
+    view.append(block);
+    requestAnimationFrame(() => hScroll.sync());
   });
 }
 
@@ -834,8 +1060,13 @@ function spreadPorts(routes, endpoint, other, coordinate) {
 
 function showGraph(tasksById, affectedIds) {
   const vertical = graphLayout === 'vertical';
-  const layouts = element('div', '', 'graph-layouts');
+  const controls = element('div', '', 'graph-controls');
+  const controlsTop = element('div', '', 'graph-controls-top');
+  const layouts = element('div', '', 'graph-layouts soft-toggle');
   layouts.setAttribute('aria-label', '依赖图布局');
+  const layoutThumb = element('span', '', 'pill-thumb');
+  layoutThumb.setAttribute('aria-hidden', 'true');
+  layouts.append(layoutThumb);
   for (const [id, label] of [['horizontal', '横向依赖图'], ['vertical', '纵向执行流程']]) {
     const toggle = element('button', label);
     toggle.type = 'button';
@@ -845,45 +1076,137 @@ function showGraph(tasksById, affectedIds) {
       if (graphLayout === id) return;
       graphLayout = id;
       render();
-      view.querySelector('[data-layout="' + id + '"]').focus({preventScroll: true});
+      view.querySelector('[data-layout="' + id + '"]')?.focus({preventScroll: true});
     });
     layouts.append(toggle);
   }
-  view.append(layouts);
+  const viewportTools = element('div', '', 'graph-viewport-tools');
+  const zoom = {scale: 1, target: 1, velocity: 0};
+  let zoomRaf = 0;
+  let panRaf = 0;
+  let pulseRaf = 0;
+  let pulseOrigin = performance.now();
+  let lastPulseRoutes = [];
+
+  const rangeWrap = element('div', '', 'range');
+  rangeWrap.setAttribute('aria-label', '依赖图缩放滑块');
+  const rangeLabel = element('span', '画布缩放', 'range-label');
+  const rangeTrack = element('div', '', 'track');
+  rangeTrack.tabIndex = 0;
+  rangeTrack.setAttribute('role', 'slider');
+  rangeTrack.setAttribute('aria-valuemin', '40');
+  rangeTrack.setAttribute('aria-valuemax', '200');
+  rangeTrack.setAttribute('aria-valuenow', '100');
+  rangeTrack.setAttribute('aria-label', '缩放比例');
+  const rangeFill = element('div', '', 'fill');
+  const rangeKnob = element('div', '', 'knob');
+  rangeTrack.append(rangeFill, rangeKnob);
+  const zoomReadout = element('div', '100%', 'val zoom-readout');
+  zoomReadout.setAttribute('aria-live', 'polite');
+  rangeWrap.append(rangeLabel, rangeTrack, zoomReadout);
+
+  let graphHScroll;
+  const commitZoomScale = scale => {
+    if (!natural.width) {
+      natural.width = graph.offsetWidth;
+      natural.height = graph.offsetHeight;
+    }
+    zoom.scale = scale;
+    const size = scaledSize(natural, scale);
+    graph.style.transform = scale === 1 ? '' : 'scale(' + scale + ')';
+    stage.style.width = scale === 1 ? '' : size.width + 'px';
+    stage.style.height = scale === 1 ? '' : size.height + 'px';
+    const pct = Math.max(0, Math.min(1, (scale - 0.4) / 1.6));
+    rangeFill.style.width = (pct * 100) + '%';
+    rangeKnob.style.left = (pct * 100) + '%';
+    const pctInt = Math.round(scale * 100);
+    zoomReadout.textContent = pctInt + '%';
+    rangeTrack.setAttribute('aria-valuenow', String(pctInt));
+    const phase = pulseRaf ? ((performance.now() - pulseOrigin) / 2100) % 1 : null;
+    draw(phase);
+    graphHScroll?.sync();
+  };
+  const applyZoom = (scale, immediate = false) => {
+    const clamped = clampScale(scale);
+    zoom.target = clamped;
+    if (immediate || reducedMotion()) {
+      cancelAnimationFrame(zoomRaf);
+      zoomRaf = 0;
+      zoom.velocity = 0;
+      commitZoomScale(clamped);
+      return;
+    }
+    if (zoomRaf) return;
+    let lastTime = performance.now();
+    const tickZoom = now => {
+      if (!graph.isConnected) {
+        zoomRaf = 0;
+        return;
+      }
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+      const next = stepSpring(
+        {value: zoom.scale, target: zoom.target, velocity: zoom.velocity},
+        dt,
+        {stiffness: 300, damping: 32, precision: 0.0005},
+      );
+      zoom.velocity = next.velocity;
+      commitZoomScale(next.value);
+      if (!next.settled) zoomRaf = requestAnimationFrame(tickZoom);
+      else zoomRaf = 0;
+    };
+    zoomRaf = requestAnimationFrame(tickZoom);
+  };
+
+  let sliderDragging = false;
+  const zoomFromClientX = clientX => {
+    const rect = rangeTrack.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+    applyZoom(0.4 + pct * 1.6, true);
+  };
+  rangeTrack.addEventListener('pointerdown', e => {
+    sliderDragging = true;
+    rangeWrap.classList.add('is-dragging');
+    rangeTrack.setPointerCapture(e.pointerId);
+    zoomFromClientX(e.clientX);
+  });
+  rangeTrack.addEventListener('pointermove', e => { if (sliderDragging) zoomFromClientX(e.clientX); });
+  const stopSliderDrag = () => { sliderDragging = false; rangeWrap.classList.remove('is-dragging'); };
+  rangeTrack.addEventListener('pointerup', stopSliderDrag);
+  rangeTrack.addEventListener('pointercancel', stopSliderDrag);
+  rangeTrack.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); applyZoom(zoom.target - 0.1); }
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); applyZoom(zoom.target + 0.1); }
+  });
+
+  const fit = element('button', '适应窗口');
+  fit.type = 'button';
+  fit.setAttribute('aria-label', '适应窗口');
+  fit.addEventListener('click', () => { applyZoom(fitScale(natural, {width: scroll.clientWidth, height: scroll.clientHeight})); fit.focus(); });
+  const edgeLegend = element('div', '', 'graph-edge-legend');
+  edgeLegend.setAttribute('aria-label', '依赖连线图例');
+  for (const [cls, label] of [
+    ['edge-swatch-up', '前置依赖'],
+    ['edge-swatch-down', '后续任务'],
+    ['edge-swatch-rb', '失败可回退'],
+  ]) {
+    const key = element('span', '', 'edge-key');
+    key.append(element('span', '', 'edge-swatch ' + cls), document.createTextNode(label));
+    edgeLegend.append(key);
+  }
+  viewportTools.append(rangeWrap, fit);
+  controlsTop.append(layouts, viewportTools);
+
   const toolbar = element('div', '', 'graph-toolbar');
   const explanation = element('p', '', 'hint');
   explanation.setAttribute('role', 'status');
   const reset = element('button', '返回总览');
   reset.type = 'button';
-  toolbar.append(explanation, reset);
-  view.append(toolbar);
-  const viewportTools = element('div', '', 'graph-viewport-tools');
-  const zoom = {scale: 1};
-  const applyZoom = scale => {
-    if (!natural.width) {
-      natural.width = graph.offsetWidth;
-      natural.height = graph.offsetHeight;
-    }
-    zoom.scale = clampScale(scale);
-    const size = scaledSize(natural, zoom.scale);
-    graph.style.transform = 'scale(' + zoom.scale + ')';
-    stage.style.width = size.width + 'px';
-    stage.style.height = size.height + 'px';
-    draw();
-  };
-  for (const [label, factor] of [['放大', 1.25], ['缩小', 0.8]]) {
-    const control = element('button', label);
-    control.type = 'button';
-    control.setAttribute('aria-label', label + '依赖图');
-    control.addEventListener('click', () => { applyZoom(zoom.scale * factor); control.focus(); });
-    viewportTools.append(control);
-  }
-  const fit = element('button', '适应窗口');
-  fit.type = 'button';
-  fit.setAttribute('aria-label', '适应窗口');
-  fit.addEventListener('click', () => { applyZoom(fitScale(natural, {width: scroll.clientWidth, height: scroll.clientHeight})); fit.focus(); });
-  viewportTools.append(fit);
-  view.append(viewportTools);
+  toolbar.append(explanation, edgeLegend, reset);
+  controls.append(controlsTop, toolbar);
+  view.append(controls);
+  requestAnimationFrame(() => syncPillThumb(layouts));
+
   const scroll = element('div', '', 'graph-scroll');
   scroll.tabIndex = 0;
   scroll.setAttribute('aria-label', vertical ? '按执行批次从上到下的流程图' : '可横向滚动的任务依赖图');
@@ -898,24 +1221,67 @@ function showGraph(tasksById, affectedIds) {
   scroll.addEventListener('wheel', event => {
     if (!event.ctrlKey) return;
     event.preventDefault();
-    applyZoom(zoom.scale * (event.deltaY < 0 ? 1.1 : 0.9));
+    applyZoom(zoom.target * (event.deltaY < 0 ? 1.1 : 0.9));
   }, {passive: false});
   let dragging = false;
   let spaceHeld = false;
   let lastX = 0;
   let lastY = 0;
+  let lastMoveTime = 0;
+  let panVx = 0;
+  let panVy = 0;
   scroll.addEventListener('keydown', event => { if (event.code === 'Space' && !event.target.matches('button, input, select, textarea, a')) { spaceHeld = true; event.preventDefault(); } });
   scroll.addEventListener('keyup', event => { if (event.code === 'Space') spaceHeld = false; });
   scroll.addEventListener('pointerdown', event => {
     if (event.button !== 1 && !spaceHeld) return;
-    dragging = true; lastX = event.clientX; lastY = event.clientY; scroll.setPointerCapture(event.pointerId); event.preventDefault();
+    cancelAnimationFrame(panRaf);
+    panRaf = 0;
+    dragging = true;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    lastMoveTime = performance.now();
+    panVx = panVy = 0;
+    scroll.setPointerCapture(event.pointerId);
+    event.preventDefault();
   });
   scroll.addEventListener('pointermove', event => {
     if (!dragging) return;
-    scroll.scrollLeft -= event.clientX - lastX; scroll.scrollTop -= event.clientY - lastY; lastX = event.clientX; lastY = event.clientY; event.preventDefault();
+    const now = performance.now();
+    const dt = Math.max(0.004, (now - lastMoveTime) / 1000);
+    const dx = event.clientX - lastX;
+    const dy = event.clientY - lastY;
+    scroll.scrollLeft -= dx;
+    scroll.scrollTop -= dy;
+    panVx = panVx * 0.45 + (-dx / dt) * 0.55;
+    panVy = panVy * 0.45 + (-dy / dt) * 0.55;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    lastMoveTime = now;
+    event.preventDefault();
   });
   let dragged = false;
-  scroll.addEventListener('pointerup', event => { if (dragging) { dragging = false; dragged = true; scroll.releasePointerCapture(event.pointerId); event.preventDefault(); } });
+  scroll.addEventListener('pointerup', event => {
+    if (!dragging) return;
+    dragging = false;
+    dragged = true;
+    scroll.releasePointerCapture(event.pointerId);
+    event.preventDefault();
+    if (reducedMotion() || Math.hypot(panVx, panVy) < 40) return;
+    let prev = performance.now();
+    const glide = now => {
+      if (!scroll.isConnected || dragging) { panRaf = 0; return; }
+      const dt = Math.min(0.032, (now - prev) / 1000);
+      prev = now;
+      const decay = Math.exp(-8.5 * dt);
+      panVx *= decay;
+      panVy *= decay;
+      scroll.scrollLeft += panVx * dt;
+      scroll.scrollTop += panVy * dt;
+      if (Math.hypot(panVx, panVy) >= 14) panRaf = requestAnimationFrame(glide);
+      else panRaf = 0;
+    };
+    panRaf = requestAnimationFrame(glide);
+  });
   scroll.addEventListener('click', event => { if (dragged) { dragged = false; event.preventDefault(); event.stopPropagation(); } }, true);
   const breadcrumb = element('nav', '', 'graph-breadcrumb');
   breadcrumb.setAttribute('aria-label', '依赖图焦点路径');
@@ -930,7 +1296,7 @@ function showGraph(tasksById, affectedIds) {
   if (typeof reason === 'string' && reason) view.append(element('p', '编码需串行：' + reason, 'hint'));
   const graphArea = element('div', '', vertical ? 'graph-area vertical-area' : 'graph-area');
 
-  function draw() {
+  function draw(pulsePhase = null) {
     const edges = selected
       ? arrangement.edges.filter(edge => edge.from === selected || edge.to === selected)
       : overview;
@@ -963,8 +1329,8 @@ function showGraph(tasksById, affectedIds) {
       }
     }
     gutters.forEach((tracks, index) => {
-      const left = endOf(columns[index].getBoundingClientRect()) + 8;
-      const right = begin(columns[index + 1].getBoundingClientRect()) - 10;
+      const left = endOf(columns[index].getBoundingClientRect()) + 8 * zoom.scale;
+      const right = begin(columns[index + 1].getBoundingClientRect()) - 10 * zoom.scale;
       tracks.sort((a, b) => a.order - b.order || a.route.y1 - b.route.y1 || a.route.y2 - b.route.y2);
       tracks.forEach(({route, key}, lane) => {
         route[key] = left + (right - left) * (lane + 1) / (tracks.length + 1);
@@ -973,59 +1339,133 @@ function showGraph(tasksById, affectedIds) {
 
     const rows = [];
     const laneStart = Math.max(...columns.map(column =>
-      acrossEnd((vertical ? column : column.lastElementChild).getBoundingClientRect()))) + 18;
+      acrossEnd((vertical ? column : column.lastElementChild).getBoundingClientRect()))) + 18 * zoom.scale;
     longRoutes.sort((a, b) => a.start.batch - b.start.batch || a.end.batch - b.end.batch);
     for (const route of longRoutes) {
       let row = rows.findIndex(end => end < route.start.batch);
       if (row === -1) row = rows.length;
       rows[row] = route.end.batch;
-      route.floor = laneStart + row * 11;
+      route.floor = laneStart + row * 11 * zoom.scale;
     }
     const returns = vertical && selected ? rollbackTargets(tasksById.get(selected)) : [];
-    graph.style[vertical ? 'paddingRight' : 'paddingBottom'] = 26 + (rows.length + returns.length) * 11 + 'px';
+    const padProp = vertical ? 'paddingRight' : 'paddingBottom';
+    const targetPad = 26 + (rows.length + returns.length) * 11 + 'px';
+    if (graph.style[padProp] !== targetPad) graph.style[padProp] = targetPad;
+    natural.width = graph.offsetWidth;
+    natural.height = graph.offsetHeight;
+    if (zoom.scale !== 1) {
+      const size = scaledSize(natural, zoom.scale);
+      stage.style.width = size.width + 'px';
+      stage.style.height = size.height + 'px';
+    }
 
     const ratio = window.devicePixelRatio || 1;
-    canvas.width = Math.ceil(stage.clientWidth * ratio);
-    canvas.height = Math.ceil(stage.clientHeight * ratio);
-    canvas.style.width = stage.clientWidth + 'px';
-    canvas.style.height = stage.clientHeight + 'px';
+    const targetW = Math.ceil(stage.clientWidth * ratio);
+    const targetH = Math.ceil(stage.clientHeight * ratio);
+    if (canvas.width !== targetW) {
+      canvas.width = targetW;
+      canvas.style.width = stage.clientWidth + 'px';
+    }
+    if (canvas.height !== targetH) {
+      canvas.height = targetH;
+      canvas.style.height = stage.clientHeight + 'px';
+    }
     const context = canvas.getContext('2d');
-    context.scale(ratio, ratio);
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
     context.lineJoin = 'round';
+    const position = ([along, across]) => vertical ? [across, along] : [along, across];
     function drawRoute(points, color, dashed = false) {
-      const position = ([along, across]) => vertical ? [across, along] : [along, across];
       const [along, across] = points.at(-1);
       const direction = Math.sign(along - points.at(-2)[0]);
       context.strokeStyle = context.fillStyle = color;
-      context.lineWidth = 1.6;
+      context.lineWidth = 1.65;
       context.setLineDash(dashed ? [5, 4] : []);
       context.beginPath();
-      context.moveTo(...position(points[0]));
-      for (const point of points.slice(1)) context.lineTo(...position(point));
+      const mapped = points.map(position);
+      context.moveTo(mapped[0][0], mapped[0][1]);
+      for (let i = 1; i < mapped.length - 1; i++) {
+        const [x0, y0] = mapped[i - 1];
+        const [x1, y1] = mapped[i];
+        const [x2, y2] = mapped[i + 1];
+        const r = Math.min(6 * zoom.scale, Math.hypot(x1 - x0, y1 - y0) / 2, Math.hypot(x2 - x1, y2 - y1) / 2);
+        if (r > 0.5) context.arcTo(x1, y1, x2, y2, r);
+        else context.lineTo(x1, y1);
+      }
+      const [lastX, lastY] = mapped.at(-1);
+      context.lineTo(lastX, lastY);
       context.stroke();
+      context.setLineDash([]);
       context.beginPath();
       context.moveTo(...position([along, across]));
-      context.lineTo(...position([along - direction * 6, across - 4]));
-      context.lineTo(...position([along - direction * 6, across + 4]));
+      context.lineTo(...position([along - direction * 6.5, across - 4]));
+      context.lineTo(...position([along - direction * 6.5, across + 4]));
       context.fill();
     }
+    lastPulseRoutes = [];
     for (const {edge, start, end, y1, y2, out, in: entry, floor} of routes) {
       const points = [[start.right, y1], [out, y1]];
       if (floor !== undefined) points.push([out, floor], [entry, floor], [entry, y2]);
       else points.push([out, y2]);
       points.push([end.left - 2, y2]);
-      drawRoute(points, edge.to === selected ? '#376e9e' : '#34745e');
+      const baseColor = edge.to === selected
+        ? (pulsePhase !== null ? 'rgba(59, 130, 246, 0.55)' : '#3b82f6')
+        : (pulsePhase !== null ? 'rgba(79, 70, 229, 0.36)' : '#4f46e5');
+      drawRoute(points, baseColor);
+      if (selected) lastPulseRoutes.push({points, rgb: edge.to === selected ? '59, 130, 246' : '79, 70, 229'});
     }
     returns.forEach((id, index) => {
       const from = nodes.get(selected);
       const to = nodes.get(id);
-      const lane = laneStart + (rows.length + index) * 11;
-      const leave = endOf(columns[from.batch].getBoundingClientRect()) + 16 + index * 4;
-      const enter = endOf(columns[to.batch].getBoundingClientRect()) + 19;
-      drawRoute([[from.right, from.middle + 6], [leave, from.middle + 6], [leave, lane],
-        [enter, lane], [enter, to.middle + 6], [to.right + 3, to.middle + 6]], '#b56726', true);
+      const lane = laneStart + (rows.length + index) * 11 * zoom.scale;
+      const leave = endOf(columns[from.batch].getBoundingClientRect()) + (16 + index * 4) * zoom.scale;
+      const enter = endOf(columns[to.batch].getBoundingClientRect()) + 19 * zoom.scale;
+      const points = [[from.right, from.middle + 6], [leave, from.middle + 6], [leave, lane],
+        [enter, lane], [enter, to.middle + 6], [to.right + 3, to.middle + 6]];
+      drawRoute(points, pulsePhase !== null ? 'rgba(181, 103, 38, 0.45)' : '#b56726', true);
+      if (selected) lastPulseRoutes.push({points, rgb: '79, 70, 229'});
     });
+    if (pulsePhase !== null && selected && !reducedMotion()) {
+      for (const {points, rgb} of lastPulseRoutes) {
+        drawBeamAlongPolyline(context, points, pulsePhase, {position, tailLen: 0.28, color: rgb});
+      }
+    }
   }
+
+  function stopPulse() {
+    cancelAnimationFrame(pulseRaf);
+    pulseRaf = 0;
+    scroll.dataset.pulseActive = 'false';
+  }
+  function startPulse() {
+    if (!selected || reducedMotion() || document.hidden || byId('workspace').hidden) {
+      stopPulse();
+      return;
+    }
+    if (pulseRaf) return;
+    scroll.dataset.pulseActive = 'true';
+    const stepPulse = now => {
+      if (!selected || reducedMotion() || document.hidden || !graph.isConnected || byId('workspace').hidden) {
+        stopPulse();
+        return;
+      }
+      if (!zoomRaf) draw(((now - pulseOrigin) / 2100) % 1);
+      pulseRaf = requestAnimationFrame(stepPulse);
+    };
+    pulseRaf = requestAnimationFrame(stepPulse);
+  }
+  const onVisibilityChange = () => {
+    if (document.hidden) stopPulse();
+    else startPulse();
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  stopGraphMotion = () => {
+    cancelAnimationFrame(zoomRaf);
+    cancelAnimationFrame(panRaf);
+    zoomRaf = panRaf = 0;
+    stopPulse();
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+  };
 
   function select(id) {
     selected = id;
@@ -1036,13 +1476,15 @@ function showGraph(tasksById, affectedIds) {
       breadcrumb.replaceChildren();
       const hidden = arrangement.edges.length - overview.length;
       explanation.textContent = parallel + ' 批含并行任务。总览显示 ' + overview.length + ' 条连线。' +
-        (hidden ? '另有 ' + hidden + ' 条可通过中间任务追溯。' : '') + '点击任务可查看它的全部直接依赖。';
+        (hidden ? '另有 ' + hidden + ' 条可通过中间任务追溯。' : '') + '点击任务小卡可在右栏检视详情。';
       detail.replaceChildren();
+      updateRightRailContext();
+      stopPulse();
       draw();
       return;
     }
     const count = arrangement.edges.filter(edge => edge.from === id || edge.to === id).length;
-    explanation.textContent = id + ' 的 ' + count + ' 条连线 · 蓝色为前置依赖，绿色指向后续任务。';
+    explanation.textContent = id + ' 的 ' + count + ' 条连线 · 蓝色为前置依赖，靛蓝指向后续任务。';
     const task = tasksById.get(id);
     const card = taskCard(task, true, false, affectedIds);
     const upstream = transitiveUpstream(id, arrangement.dependencies);
@@ -1053,10 +1495,11 @@ function showGraph(tasksById, affectedIds) {
     root.addEventListener('click', () => select(''));
     breadcrumb.append(root);
     for (const item of focusBreadcrumb(id, arrangement.dependencies).slice(0, -1)) {
-      const link = element('button', item.id, 'task-link');
+      const itemId = typeof item === 'string' ? item : item.id;
+      const link = element('button', itemId, 'task-link');
       link.type = 'button';
-      link.addEventListener('click', () => select(item.id));
-      link.addEventListener('click', () => buttons.get(item.id)?.scrollIntoView({block: 'nearest', inline: 'center'}));
+      link.addEventListener('click', () => select(itemId));
+      link.addEventListener('click', () => buttons.get(itemId)?.scrollIntoView({block: 'nearest', inline: 'center'}));
       breadcrumb.append(element('span', ' / '), link);
     }
     breadcrumb.append(element('span', ' / ' + id));
@@ -1111,13 +1554,16 @@ function showGraph(tasksById, affectedIds) {
       card.append(relations);
     }
     detail.replaceChildren(card);
-    draw();
+    updateRightRailContext(id, inspector);
+    pulseOrigin = performance.now();
+    draw(reducedMotion() ? null : 0);
+    startPulse();
   }
 
   orderedRounds.forEach((ids, index) => {
     const column = element('section', '', 'column');
     const batchLabel = element('h3', '第 ' + (index + 1) + ' 批');
-    if (vertical && ids.length > 1) batchLabel.append(element('span', ids.length + ' 项可并行'));
+    if (ids.length > 1) batchLabel.append(element('span', vertical ? ids.length + ' 项可并行' : ids.length + ' 项'));
     column.append(batchLabel);
     for (const id of ids) {
       const button = taskCard(tasksById.get(id), false, true, affectedIds);
@@ -1131,7 +1577,13 @@ function showGraph(tasksById, affectedIds) {
     graph.append(column);
     columns.push(column);
   });
-  graphArea.append(scroll, breadcrumb, detail);
+  const inspector = element('div', '', 'graph-inspector');
+  inspector.append(breadcrumb, detail);
+  graphHScroll = createNeuHScroll(scroll, '依赖图横向位置滑块');
+  viewCleanups.push(graphHScroll.destroy);
+  const graphScrollShell = element('div', '', 'graph-scroll-shell');
+  graphScrollShell.append(scroll, graphHScroll.wrap);
+  graphArea.append(graphScrollShell);
   view.append(graphArea);
   natural.width = graph.offsetWidth;
   natural.height = graph.offsetHeight;
@@ -1141,15 +1593,25 @@ function showGraph(tasksById, affectedIds) {
     node?.focus({preventScroll: true});
   });
   select(selected);
+  requestAnimationFrame(() => graphHScroll?.sync());
   observer?.disconnect();
-  observer = new ResizeObserver(draw);
+  observer = new ResizeObserver(() => {
+    draw(pulseRaf ? ((performance.now() - pulseOrigin) / 2100) % 1 : null);
+    graphHScroll?.sync();
+  });
   observer.observe(graph);
 }
 
 function render() {
+  stopGraphMotion?.();
+  stopGraphMotion = undefined;
+  for (const cleanup of viewCleanups) cleanup();
+  viewCleanups = [];
   observer?.disconnect();
   tabs.forEach(button => button.setAttribute('aria-pressed', String(active === button.dataset.view)));
+  syncTabIndicator();
   view.replaceChildren();
+  updateRightRailContext();
   metrics();
   const tasks = new Map(result.plan.tasks.map(task => [task.id, task]));
   const affectedIds = rollbackAffectedIds(result.plan.tasks, arrangement, monitor.getRuntime(), rollbackTargets);
@@ -1251,6 +1713,9 @@ byId('report').addEventListener('click', () => {
 });
 
 byId('startup').hidden = true;
-for (const id of ['workspace', 'workspace-nav', 'mast-actions', 'flow']) byId(id).hidden = false;
+for (const id of ['workspace', 'workspace-nav', 'mast-actions', 'flow', 'app-foot']) byId(id).hidden = false;
+byId('legend-slot')?.replaceChildren(statusLegend(stateLabels));
+renderRailActivity([]);
+syncTabIndicator();
 changeSpec();
 void checkStatus();

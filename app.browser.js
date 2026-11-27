@@ -470,6 +470,329 @@
     return affected;
   }
 
+  // motion.mjs
+  function stepSpring(state, dt, { stiffness = 300, damping = 32, precision = 1e-3 } = {}) {
+    const value0 = Number.isFinite(state?.value) ? state.value : 0;
+    const target = Number.isFinite(state?.target) ? state.target : value0;
+    const velocity0 = Number.isFinite(state?.velocity) ? state.velocity : 0;
+    const clampedDt = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), 0.032) : 0;
+    if (clampedDt === 0) {
+      const settled = Math.abs(target - value0) < precision && Math.abs(velocity0) < precision;
+      return { value: settled ? target : value0, target, velocity: settled ? 0 : velocity0, settled };
+    }
+    const displacement = value0 - target;
+    const force = -stiffness * displacement - damping * velocity0;
+    const velocity = velocity0 + force * clampedDt;
+    const value = value0 + velocity * clampedDt;
+    if (Math.abs(target - value) < precision && Math.abs(velocity) < precision) {
+      return { value: target, target, velocity: 0, settled: true };
+    }
+    return { value, target, velocity, settled: false };
+  }
+  function samplePolyline(points, progress) {
+    if (!Array.isArray(points) || !points.length) return [0, 0];
+    if (points.length === 1) return [points[0][0], points[0][1]];
+    const t = Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 0));
+    const lengths = [];
+    let total = 0;
+    for (let i = 1; i < points.length; i++) {
+      const len = Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+      lengths.push(len);
+      total += len;
+    }
+    if (total <= 1e-6) return [points[0][0], points[0][1]];
+    let remaining = t * total;
+    for (let i = 0; i < lengths.length; i++) {
+      const len = lengths[i];
+      if (remaining <= len || i === lengths.length - 1) {
+        const local = len > 1e-6 ? Math.min(1, Math.max(0, remaining / len)) : 0;
+        const [x0, y0] = points[i];
+        const [x1, y1] = points[i + 1];
+        return [x0 + (x1 - x0) * local, y0 + (y1 - y0) * local];
+      }
+      remaining -= len;
+    }
+    return [points.at(-1)[0], points.at(-1)[1]];
+  }
+  function reducedMotion() {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+  function animateNumber(el, from, to, suffix = "", duration = 280) {
+    if (!el) return () => {
+    };
+    if (reducedMotion() || from === to || typeof requestAnimationFrame !== "function") {
+      el.textContent = String(to) + suffix;
+      return () => {
+      };
+    }
+    const start = performance.now();
+    let rafId = 0;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const current = Math.round(from + (to - from) * eased);
+      el.textContent = String(current) + suffix;
+      if (t < 1) rafId = requestAnimationFrame(tick);
+    };
+    el.textContent = String(from) + suffix;
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }
+  function syncPillThumb(container) {
+    if (!container) return;
+    const thumb = container.querySelector(".pill-thumb");
+    const current = container.querySelector('button[aria-pressed="true"]');
+    if (!thumb || !current || !current.offsetWidth) return;
+    thumb.style.width = current.offsetWidth + "px";
+    thumb.style.transform = `translateX(${current.offsetLeft}px)`;
+  }
+  var activeSelects = /* @__PURE__ */ new Set();
+  var selectGlobalBound = false;
+  function closeAllCustomSelects(except) {
+    for (const entry of activeSelects) {
+      if (entry === except) continue;
+      entry.wrap.classList.remove("is-open");
+      entry.trigger.setAttribute("aria-expanded", "false");
+    }
+  }
+  function syncCustomSelect(sel) {
+    if (!sel || typeof sel._syncCustomSelect !== "function") return;
+    sel._syncCustomSelect();
+  }
+  function enhanceSelect(sel) {
+    if (!sel || typeof document === "undefined") return null;
+    if (sel.dataset.neuEnhanced === "true") {
+      syncCustomSelect(sel);
+      return sel.closest(".neu-select");
+    }
+    sel.dataset.neuEnhanced = "true";
+    if (!selectGlobalBound) {
+      selectGlobalBound = true;
+      document.addEventListener("click", () => closeAllCustomSelects());
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeAllCustomSelects();
+      });
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "neu-select";
+    sel.parentNode.insertBefore(wrap, sel);
+    sel.classList.add("neu-select-native");
+    sel.tabIndex = -1;
+    wrap.appendChild(sel);
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "neu-select-trigger";
+    trigger.setAttribute("aria-haspopup", "listbox");
+    trigger.setAttribute("aria-expanded", "false");
+    const ariaLabel = sel.getAttribute("aria-label");
+    if (ariaLabel) trigger.setAttribute("aria-label", ariaLabel);
+    const labelSpan = document.createElement("span");
+    labelSpan.className = "neu-select-label";
+    const arrow = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    arrow.setAttribute("width", "13");
+    arrow.setAttribute("height", "13");
+    arrow.setAttribute("viewBox", "0 0 16 16");
+    arrow.setAttribute("fill", "none");
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.setAttribute("class", "neu-select-arrow");
+    arrow.innerHTML = '<path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>';
+    trigger.append(labelSpan, arrow);
+    const menu = document.createElement("div");
+    menu.className = "neu-select-menu";
+    menu.setAttribute("role", "listbox");
+    const entry = { wrap, trigger, sel };
+    activeSelects.add(entry);
+    function rebuildOptions() {
+      const options = [...sel.options];
+      const buttons = [];
+      menu.replaceChildren();
+      options.forEach((opt, idx) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "neu-select-option";
+        btn.setAttribute("role", "option");
+        btn.setAttribute("aria-selected", String(idx === sel.selectedIndex));
+        const text2 = document.createElement("span");
+        text2.textContent = opt.textContent;
+        const check3 = document.createElement("span");
+        check3.className = "neu-select-check";
+        check3.setAttribute("aria-hidden", "true");
+        check3.textContent = "\u2713";
+        btn.append(text2, check3);
+        btn.addEventListener("click", () => {
+          if (sel.disabled) return;
+          const changed = sel.selectedIndex !== idx;
+          sel.selectedIndex = idx;
+          syncState();
+          closeAllCustomSelects();
+          trigger.focus();
+          if (changed) sel.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        buttons.push(btn);
+        menu.append(btn);
+      });
+      entry.buttons = buttons;
+    }
+    function syncState() {
+      const options = [...sel.options];
+      if (!entry.buttons || entry.buttons.length !== options.length || entry.buttons.some((b, i) => b.firstChild?.textContent !== options[i]?.textContent)) {
+        rebuildOptions();
+      }
+      labelSpan.textContent = sel.selectedOptions[0]?.textContent || options[0]?.textContent || "";
+      trigger.disabled = sel.disabled;
+      wrap.classList.toggle("is-disabled", sel.disabled);
+      entry.buttons?.forEach((b, i) => b.setAttribute("aria-selected", String(i === sel.selectedIndex)));
+    }
+    sel._syncCustomSelect = syncState;
+    const observer2 = typeof MutationObserver === "function" ? new MutationObserver(syncState) : null;
+    observer2?.observe(sel, { childList: true, attributes: true, attributeFilter: ["disabled"] });
+    if (sel.id) {
+      const explicitLabel = document.querySelector(`label[for="${CSS.escape(sel.id)}"]`);
+      explicitLabel?.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (!sel.disabled) trigger.click();
+      });
+    }
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (sel.disabled) return;
+      syncState();
+      const willOpen = !wrap.classList.contains("is-open");
+      closeAllCustomSelects(entry);
+      wrap.classList.toggle("is-open", willOpen);
+      trigger.setAttribute("aria-expanded", String(willOpen));
+    });
+    trigger.addEventListener("keydown", (e) => {
+      if (sel.disabled) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        const nextIdx = Math.max(0, Math.min(sel.options.length - 1, sel.selectedIndex + step));
+        if (nextIdx !== sel.selectedIndex) {
+          sel.selectedIndex = nextIdx;
+          syncState();
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+    });
+    syncState();
+    wrap.append(trigger, menu);
+    return wrap;
+  }
+  function createNeuHScroll(scrollEl, ariaLabel = "\u6A2A\u5411\u4F4D\u7F6E\u6ED1\u5757") {
+    const wrap = document.createElement("div");
+    wrap.className = "neu-hscroll-wrap";
+    const track = document.createElement("div");
+    track.className = "neu-hscroll-track";
+    track.setAttribute("role", "scrollbar");
+    track.setAttribute("aria-orientation", "horizontal");
+    track.setAttribute("aria-label", ariaLabel);
+    track.setAttribute("aria-valuenow", "0");
+    const thumb = document.createElement("div");
+    thumb.className = "neu-hscroll-thumb";
+    track.append(thumb);
+    wrap.append(track);
+    const sync = () => {
+      if (!scrollEl.isConnected || !scrollEl.offsetParent && scrollEl.clientWidth === 0) return;
+      const maxScroll = Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
+      wrap.hidden = maxScroll <= 2;
+      if (maxScroll <= 2) return;
+      const trackInnerW = track.clientWidth - 8;
+      if (trackInnerW <= 0) return;
+      const thumbW = Math.max(56, Math.round(scrollEl.clientWidth / scrollEl.scrollWidth * trackInnerW));
+      const ratio = maxScroll ? scrollEl.scrollLeft / maxScroll : 0;
+      const left = 4 + Math.round((trackInnerW - thumbW) * ratio);
+      thumb.style.width = thumbW + "px";
+      thumb.style.left = left + "px";
+      track.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+    };
+    scrollEl.addEventListener("scroll", sync);
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(sync) : null;
+    ro?.observe(scrollEl);
+    let dragging = false;
+    let startX = 0;
+    let startLeft = 0;
+    thumb.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      startX = e.clientX;
+      startLeft = thumb.offsetLeft - 4;
+      wrap.classList.add("is-dragging");
+      thumb.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    });
+    thumb.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const trackInnerW = track.clientWidth - 8;
+      const maxOffset = Math.max(1, trackInnerW - thumb.offsetWidth);
+      const next = Math.max(0, Math.min(maxOffset, startLeft + (e.clientX - startX)));
+      const maxScroll = Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
+      scrollEl.scrollLeft = next / maxOffset * maxScroll;
+    });
+    const endDrag = () => {
+      dragging = false;
+      wrap.classList.remove("is-dragging");
+    };
+    thumb.addEventListener("pointerup", endDrag);
+    thumb.addEventListener("pointercancel", endDrag);
+    track.addEventListener("pointerdown", (e) => {
+      if (e.target === thumb) return;
+      const r = track.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(
+        1,
+        (e.clientX - r.left - thumb.offsetWidth / 2) / Math.max(1, r.width - thumb.offsetWidth)
+      ));
+      scrollEl.scrollLeft = pct * Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
+    });
+    return {
+      wrap,
+      sync,
+      destroy() {
+        scrollEl.removeEventListener("scroll", sync);
+        ro?.disconnect();
+      }
+    };
+  }
+  function drawBeamAlongPolyline(ctx, pts, cyclePhase, { position = (p) => p, tailLen = 0.28, color = "79, 70, 229" } = {}) {
+    const span = 1 + tailLen;
+    for (const offset of [0, 0.5]) {
+      const p = (cyclePhase + offset) % 1 * span;
+      const head = Math.min(1, p);
+      const tail = Math.max(0, p - tailLen);
+      if (head - tail < 0.02) continue;
+      const steps2 = 18;
+      const samples = [];
+      for (let i = 0; i <= steps2; i++) {
+        const t = tail + (head - tail) * (i / steps2);
+        samples.push(position(samplePolyline(pts, t)));
+      }
+      const edgeFade = Math.min(1, head / 0.12) * Math.min(1, (1 + tailLen - p) / 0.14);
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      for (let i = 0; i < steps2; i++) {
+        const k = (i + 1) / steps2;
+        const intensity = Math.pow(k, 1.65) * edgeFade;
+        ctx.strokeStyle = `rgba(${color}, ${(0.16 * intensity).toFixed(3)})`;
+        ctx.lineWidth = 3.8;
+        ctx.beginPath();
+        ctx.moveTo(samples[i][0], samples[i][1]);
+        ctx.lineTo(samples[i + 1][0], samples[i + 1][1]);
+        ctx.stroke();
+        const r = Math.round(79 + (129 - 79) * k);
+        const g = Math.round(70 + (140 - 70) * k);
+        const b = Math.round(229 + (248 - 229) * k);
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${(0.95 * intensity).toFixed(3)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(samples[i][0], samples[i][1]);
+        ctx.lineTo(samples[i + 1][0], samples[i + 1][1]);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
   // observability.mjs
   var EVENT_TYPES = Object.freeze({
     STAGE_START: "STAGE_START",
@@ -672,9 +995,12 @@
     setBusy,
     renderCases,
     openPlan,
-    refreshExecution
+    refreshExecution,
+    onActivityChange
   }) {
-    let events = [], runtime = {}, discussion;
+    let events = [], runtime = {}, discussion, execFilter = "all";
+    let prevExecStates = /* @__PURE__ */ new Map();
+    let suppressExecStagger = false;
     const pendingAgents = /* @__PURE__ */ new Map();
     const noteDrafts = /* @__PURE__ */ new Map();
     const activity = document.getElementById("activity");
@@ -698,6 +1024,7 @@
       }));
       document.getElementById("event-count").textContent = events.length;
       document.getElementById("activity-empty").hidden = events.length > 0;
+      onActivityChange?.(events);
     }
     extract.addEventListener("click", async () => {
       if (isBusy()) return;
@@ -742,15 +1069,21 @@
         node("pre", discussion.transcript.split(/\r?\n/).map((line, i) => i + 1 + "  " + line).join("\n"), "transcript-source")
       );
       discussionResult.append(original);
+      const pointsGrid = node("div", "", "points-grid");
       for (const point of discussion.points) {
         const card = node("article", "", "chain-card");
-        card.append(
-          node("h4", point.id + " \xB7 " + (point.kind === "open" ? "\u5F85\u786E\u8BA4" : "\u660E\u786E\u610F\u89C1")),
-          node("p", point.text)
+        const head = node("div", "", "point-head");
+        const kindBadge = node(
+          "span",
+          point.kind === "open" ? "\u5F85\u786E\u8BA4" : "\u660E\u786E\u610F\u89C1",
+          "point-badge " + (point.kind === "open" ? "point-open" : "point-decision")
         );
+        head.append(node("h4", point.id), kindBadge);
+        card.append(head, node("p", point.text));
         for (const evidence of point.evidence) card.append(node("blockquote", "\u7B2C " + evidence.line + " \u884C \xB7 " + evidence.quote));
-        discussionResult.append(card);
+        pointsGrid.append(card);
       }
+      discussionResult.append(pointsGrid);
       const rounds = discussion.rounds ?? [];
       const current = rounds.at(-1);
       if (!current) {
@@ -790,6 +1123,7 @@
           { round: current.number, participants: discussion.participants }
         );
       }));
+      confirm.className = "btn-solid";
       confirm.disabled = !readyToConfirm;
       discussionResult.append(node("p", readyToConfirm ? "\u5168\u5458\u5DF2\u540C\u610F\u672C\u8F6E\u63D0\u6848\u3002" : "\u672C\u8F6E\u5168\u5458\u540C\u610F\u540E\u53EF\u8F6C\u5165\u4EA7\u54C1\u60F3\u6CD5\u3002", "hint"), confirm);
       const revise = node("details", "", "consensus-history");
@@ -837,7 +1171,7 @@
         return [vote.participant, field];
       });
       const read = (fields) => Object.fromEntries(fields.map(([id, field]) => [id, field.value]));
-      editor.append(button(previous ? "\u63D0\u4EA4\u4FEE\u8BA2\u5E76\u5F00\u542F\u65B0\u4E00\u8F6E" : "\u5F00\u542F\u7B2C\u4E00\u8F6E\u786E\u8BA4", () => updateDiscussion(() => {
+      const submitProposal = button(previous ? "\u63D0\u4EA4\u4FEE\u8BA2\u5E76\u5F00\u542F\u65B0\u4E00\u8F6E" : "\u5F00\u542F\u7B2C\u4E00\u8F6E\u786E\u8BA4", () => updateDiscussion(() => {
         discussion = startConsensusRound(discussion, {
           participants: roster?.value.split(/\r?\n/).filter((line) => line.trim()),
           proposal: proposal.value,
@@ -851,7 +1185,9 @@
           round.proposal,
           { round: round.number, participants: discussion.participants, responses: round.responses }
         );
-      })));
+      }));
+      submitProposal.className = "btn-solid";
+      editor.append(submitProposal);
       return editor;
     }
     function roundCard(round) {
@@ -859,22 +1195,35 @@
       const byName = new Map(round.votes.map((vote) => [vote.participant, vote]));
       const agrees = round.votes.filter((vote) => vote.stance === "agree").length;
       const card = node("article", "", "chain-card consensus-round");
-      card.append(
-        node("h3", "\u7B2C " + round.number + " \u8F6E \xB7 " + agrees + " / " + discussion.participants.length + " \u540C\u610F"),
-        node("p", round.proposal, "chain-text")
+      const roundHead = node("div", "", "point-head");
+      roundHead.append(
+        node("h3", "\u7B2C " + round.number + " \u8F6E\u63D0\u6848"),
+        node(
+          "span",
+          agrees + " / " + discussion.participants.length + " \u540C\u610F",
+          "point-badge " + (agrees === discussion.participants.length ? "point-decision" : "point-open")
+        )
       );
+      card.append(roundHead, node("p", round.proposal, "chain-text"));
       for (const [id, answer] of Object.entries(round.resolutions)) card.append(node("p", id + " \xB7 " + answer));
       const list = node("ul");
       for (const name of discussion.participants) {
         const vote = byName.get(name);
-        const row = node("li", name + " \xB7 " + (vote ? stanceLabels[vote.stance] : "\u5F85\u767B\u8BB0"));
-        if (vote?.note) row.append(node("span", (vote.point ? vote.point + " \xB7 " : "") + vote.note));
+        const row = node("li");
+        const rowHead = node("div", "", "vote-row-head");
+        const stanceClass = !vote ? "point-pending" : vote.stance === "agree" ? "point-decision" : vote.stance === "reserve" ? "point-reserve" : "point-object";
+        rowHead.append(
+          node("span", name),
+          node("span", vote ? stanceLabels[vote.stance] : "\u5F85\u767B\u8BB0", "point-badge " + stanceClass)
+        );
+        row.append(rowHead);
+        if (vote?.note) row.append(node("span", (vote.point ? vote.point + " \xB7 " : "") + vote.note, "vote-note"));
         if (vote && vote.stance !== "agree") {
           const revised = discussion.rounds[round.number];
           const reply = revised?.responses[name];
           const closed = discussion.rounds.slice(round.number).find((later) => later.votes.some((item) => item.participant === name && item.stance === "agree"));
-          if (reply) row.append(node("span", "\u7B2C " + revised.number + " \u8F6E\u56DE\u5E94 \xB7 " + reply));
-          row.append(node("span", closed ? "\u5F02\u8BAE\u5DF2\u5173\u95ED \xB7 \u672C\u4EBA\u4E8E\u7B2C " + closed.number + " \u8F6E\u540C\u610F\u4FEE\u8BA2\u7A3F" : reply ? "\u7B49\u5F85\u8BE5\u53C2\u4E0E\u8005\u786E\u8BA4\u4FEE\u8BA2\u7A3F" : "\u5F85\u56DE\u5E94"));
+          if (reply) row.append(node("span", "\u7B2C " + revised.number + " \u8F6E\u56DE\u5E94 \xB7 " + reply, "vote-note"));
+          row.append(node("span", closed ? "\u5F02\u8BAE\u5DF2\u5173\u95ED \xB7 \u672C\u4EBA\u4E8E\u7B2C " + closed.number + " \u8F6E\u540C\u610F\u4FEE\u8BA2\u7A3F" : reply ? "\u7B49\u5F85\u8BE5\u53C2\u4E0E\u8005\u786E\u8BA4\u4FEE\u8BA2\u7A3F" : "\u5F85\u56DE\u5E94", "vote-note"));
         }
         list.append(row);
       }
@@ -890,28 +1239,30 @@
       const participant = labeled(form, "\u53C2\u4E0E\u8005", node("select"));
       participant.add(new Option("\u9009\u62E9\u5F85\u767B\u8BB0\u53C2\u4E0E\u8005", ""));
       names.forEach((name) => participant.add(new Option(name, name)));
+      enhanceSelect(participant);
       const stance = labeled(form, "\u7ACB\u573A", node("select"));
       stance.add(new Option("\u9009\u62E9\u7ACB\u573A", ""));
       for (const [id, label] of Object.entries(stanceLabels)) stance.add(new Option(label, id));
+      enhanceSelect(stance);
       const point = labeled(form, "\u6D89\u53CA\u8981\u70B9\uFF08\u9002\u7528\u4E8E\u5F02\u8BAE\uFF09", node("select"));
       point.add(new Option("\u6574\u4EFD\u63D0\u6848", ""));
       for (const item of discussion.points) point.add(new Option(item.id + " \xB7 " + item.text, item.id));
+      enhanceSelect(point);
       const note = labeled(form, "\u610F\u89C1\u8BF4\u660E\uFF08\u53CD\u5BF9\u6216\u4FDD\u7559\u65F6\u5FC5\u586B\uFF09", node("input"));
       note.maxLength = 500;
-      form.append(
-        node("p", "\u8BF7\u767B\u8BB0\u53C2\u4E0E\u8005\u5DF2\u7ECF\u8868\u8FBE\u7684\u7ACB\u573A\u3002", "hint"),
-        button("\u767B\u8BB0\u7ACB\u573A", () => updateDiscussion(() => {
-          discussion = registerStance(discussion, {
-            participant: participant.value,
-            stance: stance.value,
-            point: point.value,
-            note: note.value
-          });
-          const round = discussion.rounds.at(-1);
-          const vote = round.votes.at(-1);
-          log("\u5171\u8BC6\u786E\u8BA4", stanceLabels[vote.stance], "\u7B2C " + round.number + " \u8F6E \xB7 " + vote.participant + (vote.note ? " \xB7 " + vote.note : ""), { round: round.number, ...vote });
-        }))
-      );
+      const registerBtn = button("\u767B\u8BB0\u7ACB\u573A", () => updateDiscussion(() => {
+        discussion = registerStance(discussion, {
+          participant: participant.value,
+          stance: stance.value,
+          point: point.value,
+          note: note.value
+        });
+        const round = discussion.rounds.at(-1);
+        const vote = round.votes.at(-1);
+        log("\u5171\u8BC6\u786E\u8BA4", stanceLabels[vote.stance], "\u7B2C " + round.number + " \u8F6E \xB7 " + vote.participant + (vote.note ? " \xB7 " + vote.note : ""), { round: round.number, ...vote });
+      }));
+      registerBtn.className = "btn-solid";
+      form.append(node("p", "\u8BF7\u767B\u8BB0\u53C2\u4E0E\u8005\u5DF2\u7ECF\u8868\u8FBE\u7684\u7ACB\u573A\u3002", "hint"), registerBtn);
       return form;
     }
     async function callNodeAgent(task) {
@@ -969,6 +1320,7 @@
         if (getResult() === result2) {
           if (token.error) agentErrors.set(task.id, token.error);
           else agentErrors.delete(task.id);
+          suppressExecStagger = true;
           refreshExecution();
         }
       }
@@ -979,57 +1331,130 @@
       const arrangement2 = getArrangement();
       const tasks = new Map(plan.tasks.map((task) => [task.id, task]));
       const affected = rollbackAffectedIds(plan.tasks, arrangement2, runtime, rollbackTargets);
+      const taskEntries = plan.tasks.map((task) => ({ task, state: taskState(task.id, runtime, arrangement2) }));
+      const shouldStagger = !suppressExecStagger;
+      suppressExecStagger = false;
+      const filterCounts = { all: taskEntries.length, ready: 0, active: 0, failed: 0, done: 0 };
+      for (const { state } of taskEntries) {
+        if (state === "ready") filterCounts.ready++;
+        else if (state === "running" || state === "waiting") filterCounts.active++;
+        else if (state === "failed") filterCounts.failed++;
+        else if (state === "done") filterCounts.done++;
+      }
       container.append(node("p", "\u8282\u70B9\u901A\u8FC7 DeepSeek API \u8C03\u7528\u5BF9\u5E94 Agent\u3002\u8D1F\u8D23\u4EBA\u786E\u8BA4\u540E\uFF0C\u4EA7\u7269\u624D\u4F1A\u4F20\u7ED9\u4F9D\u8D56\u5B83\u7684\u8282\u70B9\u3002\u6D4B\u8BD5\u811A\u672C\u7531\u8D1F\u8D23\u4EBA\u5728\u9879\u76EE\u73AF\u5883\u8FD0\u884C\u3002", "hint"));
+      const toolbar = node("div", "", "exec-toolbar");
+      const filters = node("div", "", "exec-filters");
+      filters.setAttribute("aria-label", "\u6309\u4EFB\u52A1\u72B6\u6001\u7B5B\u9009");
+      for (const [filterId, label] of [
+        ["all", "\u5168\u90E8"],
+        ["ready", "\u53EF\u5F00\u59CB"],
+        ["active", "\u8FDB\u884C\u4E2D\xB7\u7B49\u8865\u5145"],
+        ["failed", "\u5931\u8D25\u5F85\u5904\u7406"],
+        ["done", "\u5DF2\u5B8C\u6210"]
+      ]) {
+        const btn = button(label + " (" + filterCounts[filterId] + ")", () => {
+          execFilter = filterId;
+          suppressExecStagger = false;
+          refreshExecution();
+        });
+        btn.className = "exec-filter-btn";
+        btn.dataset.filter = filterId;
+        btn.setAttribute("aria-pressed", String(execFilter === filterId));
+        filters.append(btn);
+      }
       const batch = button("\u5E76\u884C\u8C03\u7528\u5C31\u7EEA Agent", async () => {
         if (isBusy() || !await ready() || getResult()?.plan !== plan) return;
         const available = arrangement2.rounds.flat().filter((id) => taskState(id, runtime, arrangement2) === "ready");
         await Promise.all(available.slice(0, Math.max(0, arrangement2.capacity - pendingAgents.size)).map((id) => callNodeAgent(tasks.get(id))));
       });
-      batch.disabled = pendingAgents.size >= arrangement2.capacity || !plan.tasks.some((task) => taskState(task.id, runtime, arrangement2) === "ready");
-      container.append(batch);
-      for (const task of plan.tasks) {
-        const state = taskState(task.id, runtime, arrangement2);
+      batch.className = "btn-ai";
+      batch.disabled = pendingAgents.size >= arrangement2.capacity || !filterCounts.ready;
+      toolbar.append(filters, batch);
+      container.append(toolbar);
+      const visibleEntries = taskEntries.filter(({ state }) => {
+        if (execFilter === "all") return true;
+        if (execFilter === "active") return state === "running" || state === "waiting";
+        return state === execFilter;
+      });
+      if (!visibleEntries.length) {
+        prevExecStates = new Map(taskEntries.map((e) => [e.task.id, e.state]));
+        const empty = node("p", "\u5F53\u524D\u72B6\u6001\u7B5B\u9009\u4E0B\u6682\u65E0\u4EFB\u52A1\uFF0C\u53EF\u70B9\u51FB\u300C\u5168\u90E8\u300D\u67E5\u770B\u5168\u90E8\u8282\u70B9\u3002", "hint");
+        container.append(empty);
+        return;
+      }
+      visibleEntries.forEach(({ task, state }, idx) => {
         const card = node("article", "", "execution-card");
         card.id = "execution-" + task.id;
+        card.dataset.role = task.role;
         card.tabIndex = -1;
+        if (shouldStagger) {
+          card.classList.add("stagger-in");
+          card.style.setProperty("--stagger", String(Math.min(idx, 8)));
+        }
+        if (prevExecStates.size && prevExecStates.get(task.id) !== state) {
+          card.classList.add("just-updated");
+        }
         const agent = agentForTask(task);
         const output = currentAgentOutput(runtime[task.id]);
         const inFlight = pendingAgents.has(task.id);
+        const head = node("div", "", "exec-head");
         const stateLine = node("p", "", "execution-status");
         stateLine.append(
           statusBadge(state, stateLabels[state], { rollbackAffected: affected.has(task.id) }),
-          node("span", " \xB7 " + agent.name + " \xB7 " + taskStage(task) + (inFlight ? " \xB7 Agent \u751F\u6210\u4E2D" : "") + " \xB7 \u5C1D\u8BD5 " + (runtime[task.id]?.attempts || 0) + " \u6B21")
+          node("span", " \xB7 " + agent.name + " \xB7 " + taskStage(task) + (inFlight ? " \xB7 Agent \u751F\u6210\u4E2D" : "") + " \xB7 \u5C1D\u8BD5 " + (runtime[task.id]?.attempts || 0) + " \u6B21", "exec-meta-text")
         );
-        card.append(
-          node("h3", task.id + " \xB7 " + task.title),
-          stateLine,
-          node("p", agent.duty),
-          node("p", "\u9884\u671F\u4EA4\u4ED8\u7269\uFF1A" + task.output),
-          node("p", "\u524D\u7F6E\uFF1A" + (arrangement2.dependencies[task.id].map((id) => id + " " + stateLabels[taskState(id, runtime, arrangement2)]).join("\u3001") || "\u65E0"))
-        );
-        if (task.test) card.append(node("p", "\u6D4B\u8BD5\u76EE\u6807\uFF1A" + task.test.targets.map((id) => id + " " + tasks.get(id).title).join("\u3001")), ...renderCases(task));
-        if (task.review) card.append(
-          node("p", "\u8BC4\u5BA1\u5BF9\u8C61\uFF1A" + task.review.target + " " + tasks.get(task.review.target).title),
-          node("p", task.acceptance)
-        );
+        head.append(node("h3", task.id + " \xB7 " + task.title), stateLine);
+        card.append(head);
+        const candidates = rollbackTargets(task);
+        const nextTips = {
+          pending: "\u7B49\u5F85\u524D\u7F6E\u4F9D\u8D56\u5168\u90E8\u786E\u8BA4\u4EA4\u4ED8\u540E\u5373\u53EF\u5F00\u59CB\u3002",
+          ready: "\u4E0B\u4E00\u6B65\uFF1A\u70B9\u51FB\u300C\u8C03\u7528 " + agent.name + "\u300D\u81EA\u52A8\u751F\u6210\uFF0C\u6216\u624B\u52A8\u70B9\u51FB\u300C\u5F00\u59CB\u6267\u884C\u300D\u3002",
+          running: "\u4E0B\u4E00\u6B65\uFF1A\u586B\u5199\u8BF4\u660E\u540E\u300C\u786E\u8BA4\u4EA4\u4ED8\u300D\uFF0C\u6216\u70B9\u51FB\u300C\u8BF7\u6C42\u8865\u5145\u300D/\u300C\u62A5\u544A\u5931\u8D25\u300D\u3002",
+          waiting: "\u4E0B\u4E00\u6B65\uFF1A\u586B\u5199\u6F84\u6E05\u7B54\u590D\u5E76\u70B9\u51FB\u300C\u63D0\u4EA4\u7B54\u590D\u300D\u6062\u590D\u6267\u884C\u3002",
+          failed: candidates.length ? "\u4E0B\u4E00\u6B65\uFF1A\u5728\u4E0B\u65B9\u9009\u5B9A\u7F3A\u9677\u6E90\u4EFB\u52A1\u6267\u884C\u300C\u56DE\u9000\u5E76\u8981\u6C42\u91CD\u9A8C\u300D\uFF0C\u6216\u300C\u4EBA\u5DE5\u91CD\u8BD5\u300D\u3002" : "\u4E0B\u4E00\u6B65\uFF1A\u6838\u67E5\u5931\u8D25\u8BF4\u660E\u540E\u70B9\u51FB\u300C\u4EBA\u5DE5\u91CD\u8BD5\u300D\u3002",
+          done: "\u5DF2\u786E\u8BA4\u4EA4\u4ED8\uFF1A\u4EA7\u7269\u5DF2\u4F20\u9012\u5E76\u89E3\u9501\u4E0B\u6E38\u4F9D\u8D56\u3002"
+        };
+        if (nextTips[state]) {
+          const tip = node("p", nextTips[state], "exec-next-tip");
+          tip.dataset.state = state;
+          card.append(tip);
+        }
+        const specs = node("div", "", "task-specs");
+        const addSpecRow = (key, val) => {
+          const row = node("div", "", "task-spec-row");
+          row.append(node("span", key, "spec-key"), node("span", val, "spec-val"));
+          specs.append(row);
+        };
+        addSpecRow("\u804C\u8D23", agent.duty);
+        addSpecRow("\u9884\u671F\u4EA4\u4ED8\u7269", task.output);
+        addSpecRow("\u524D\u7F6E", arrangement2.dependencies[task.id].map((id) => id + " " + stateLabels[taskState(id, runtime, arrangement2)]).join("\u3001") || "\u65E0");
+        if (task.test) addSpecRow("\u6D4B\u8BD5\u76EE\u6807", task.test.targets.map((id) => id + " " + tasks.get(id).title).join("\u3001"));
+        if (task.review) {
+          addSpecRow("\u8BC4\u5BA1\u5BF9\u8C61", task.review.target + " " + tasks.get(task.review.target).title);
+          addSpecRow("\u9A8C\u6536", task.acceptance);
+        }
+        card.append(specs);
+        if (task.test) card.append(...renderCases(task));
         if (output) {
-          card.append(node("p", (output.verdict ? verdictLabels[output.verdict] + " \xB7 " : "") + "DeepSeek \xB7 " + output.model + " \xB7 " + output.summary));
+          const outputBox = node("div", "", "exec-output");
+          outputBox.append(node("p", (output.verdict ? verdictLabels[output.verdict] + " \xB7 " : "") + "DeepSeek \xB7 " + output.model + " \xB7 " + output.summary));
           for (const file2 of output.artifacts) {
             const detail = node("details", "", "agent-artifact");
+            const pre = node("pre", file2.content);
+            const preHScroll = createNeuHScroll(pre, file2.path + " \u6A2A\u5411\u4F4D\u7F6E\u6ED1\u5757");
             detail.append(
               node("summary", file2.path),
-              node("pre", file2.content),
+              pre,
+              preHScroll.wrap,
               button("\u4E0B\u8F7D\u6587\u4EF6", () => download(file2.path.split("/").at(-1), file2.content, "text/plain;charset=utf-8"))
             );
-            card.append(detail);
+            detail.addEventListener("toggle", () => {
+              if (detail.open) requestAnimationFrame(preHScroll.sync);
+            });
+            outputBox.append(detail);
           }
+          card.append(outputBox);
         }
-        const list = node("ul", "", "execution-history");
-        for (const item of runtime[task.id]?.notes || []) list.append(node(
-          "li",
-          new Date(item.time).toLocaleTimeString("zh-CN") + " \xB7 " + historyText(item)
-        ));
-        if (list.childElementCount) card.append(list);
         const allowed = { ready: ["start"], running: ["ask", "fail", "complete"], waiting: ["answer"], failed: ["retry"] }[state] || [];
         if (allowed.length) {
           const label = node("label", task.role === "\u6D4B\u8BD5" ? "\u5904\u7406\u8BF4\u660E\uFF0F\u5B9E\u9645\u6D4B\u8BD5\u7ED3\u679C" : "\u5904\u7406\u8BF4\u660E\uFF0F\u4EA4\u4ED8\u7269\u4F4D\u7F6E");
@@ -1046,6 +1471,7 @@
             const invoke = button((output ? "\u91CD\u65B0\u8C03\u7528 " : "\u8C03\u7528 ") + agent.name, async () => {
               if (!isBusy() && await ready() && getResult()?.plan === plan) await callNodeAgent(task);
             });
+            invoke.className = "btn-ai";
             invoke.disabled = inFlight || pendingAgents.size >= arrangement2.capacity;
             actions.append(invoke);
           }
@@ -1066,22 +1492,26 @@
                   evidence_ref: "runtime." + task.id + ".notes"
                 });
                 noteDrafts.delete(task.id);
+                suppressExecStagger = true;
                 refreshExecution();
               } catch (issue) {
                 error.textContent = issue.message;
               }
             });
+            if (action === "complete") control.className = "btn-solid";
+            else if (action === "fail") control.className = "btn-danger-soft";
             control.disabled = inFlight || action === "complete" && Boolean(output?.verdict && output.verdict !== "pass");
             actions.append(control);
           }
-          const candidates = rollbackTargets(task);
           if (state === "failed" && candidates.length) {
+            const rollbackBox = node("div", "", "exec-rollback-box");
             const targetLabel = node("label", "\u56DE\u9000\u76EE\u6807");
             const targets = node("select");
             targets.append(new Option("\u9009\u5B9A\u786E\u8BA4\u6709\u7F3A\u9677\u7684\u5B9E\u73B0\u4EFB\u52A1", ""));
             for (const id of candidates) targets.append(new Option(id + " \xB7 " + tasks.get(id).title, id));
             if (candidates.length === 1) targets.value = candidates[0];
             targetLabel.append(targets);
+            enhanceSelect(targets);
             const impact = node("p", "", "hint");
             const rollback = button("\u56DE\u9000\u5E76\u8981\u6C42\u91CD\u9A8C", () => {
               try {
@@ -1106,11 +1536,13 @@
                   evidence_ref: "runtime." + task.id + ".status"
                 });
                 noteDrafts.delete(task.id);
+                suppressExecStagger = true;
                 refreshExecution();
               } catch (issue) {
                 error.textContent = issue.message;
               }
             });
+            rollback.className = "btn-warn-soft";
             const showImpact = () => {
               rollback.disabled = !targets.value;
               impact.textContent = targets.value ? "\u4FEE\u590D " + targets.value + " \u540E\u91CD\u65B0\u9A8C\u8BC1 " + rollbackScope(targets.value, arrangement2).join("\u3001") + "\u3002" : "\u9009\u5B9A\u5B9E\u73B0\u4EFB\u52A1\u540E\u53EF\u9884\u89C8\u5F71\u54CD\u8303\u56F4\u3002";
@@ -1138,14 +1570,22 @@
             });
             targets.addEventListener("change", showImpact);
             showImpact();
-            card.append(targetLabel, impact);
+            rollbackBox.append(targetLabel, impact);
+            card.append(rollbackBox);
             actions.append(rollback);
           }
           if (agentErrors.has(task.id)) error.textContent = agentErrors.get(task.id);
           card.append(label, actions, error);
         }
+        const list = node("ul", "", "execution-history");
+        for (const item of runtime[task.id]?.notes || []) list.append(node(
+          "li",
+          new Date(item.time).toLocaleTimeString("zh-CN") + " \xB7 " + historyText(item)
+        ));
+        if (list.childElementCount) card.append(list);
         container.append(card);
-      }
+      });
+      prevExecStates = new Map(taskEntries.map((e) => [e.task.id, e.state]));
     }
     document.getElementById("export-task-md").addEventListener("click", () => {
       const result2 = getResult();
@@ -1221,6 +1661,9 @@
       },
       resetRuntime() {
         runtime = {};
+        execFilter = "all";
+        prevExecStates.clear();
+        suppressExecStagger = false;
         pendingAgents.clear();
         agentErrors.clear();
         noteDrafts.clear();
@@ -1655,9 +2098,15 @@
   var keyDialog = byId("key-dialog");
   var keyInput = byId("key-input");
   var tabs = [...document.querySelectorAll("[data-view]")];
+  var tabBar = tabs[0]?.parentElement;
+  var wsNav = byId("workspace-nav");
   var result;
   var arrangement;
   var observer;
+  var stopGraphMotion;
+  var viewCleanups = [];
+  var lastMetricValues = null;
+  var metricCleanups = [];
   var pageKey;
   var apiStatus;
   var active = "tasks";
@@ -1667,6 +2116,7 @@
   var pipeline;
   var draft;
   var chainView = "idea";
+  var chainExpanded = false;
   var runningStage = "";
   var graphLayout = "horizontal";
   var inputCollapsed = false;
@@ -1679,6 +2129,46 @@
     ["feedback", "\u8BBE\u8BA1\u56DE\u586B"]
   ];
   var stepLabels = new Map(steps);
+  function renderRailActivity(events = []) {
+    const list = byId("rail-activity-list");
+    const tip = byId("rail-activity-tip");
+    if (!list) return;
+    const recent = events.slice(-4).reverse();
+    if (!recent.length) {
+      list.replaceChildren();
+      if (tip) tip.hidden = false;
+      return;
+    }
+    list.replaceChildren(...recent.map((event) => {
+      const li = element("li");
+      const time = element("time", new Date(event.time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }));
+      const title = element("strong", [event.stage, event.agent, event.status].filter(Boolean).join(" \xB7 "));
+      const msg = document.createTextNode(" \xB7 " + event.message);
+      li.append(time, title, msg);
+      return li;
+    }));
+    if (tip) tip.hidden = false;
+  }
+  function updateRightRailContext(inspectingId = "", inspectorEl = null) {
+    const heading = byId("right-ctx-heading");
+    const chip = byId("right-ctx-chip");
+    const inspectorSlot = byId("rail-inspector-slot");
+    const activitySlot = byId("rail-activity-slot");
+    if (!heading || !chip || !inspectorSlot || !activitySlot) return;
+    if (inspectingId && inspectorEl && active === "graph") {
+      heading.textContent = "\u8282\u70B9\u68C0\u89C6 \xB7 " + inspectingId;
+      chip.textContent = "\u56FE\u8282\u70B9\u8054\u52A8";
+      inspectorSlot.replaceChildren(inspectorEl);
+      inspectorSlot.hidden = false;
+      activitySlot.hidden = true;
+    } else {
+      heading.textContent = "\u6700\u8FD1\u8FD0\u884C\u4E0E\u4EA4\u4E92\u6458\u8981";
+      chip.textContent = "\u5B9E\u65F6\u540C\u6B65";
+      inspectorSlot.replaceChildren();
+      inspectorSlot.hidden = true;
+      activitySlot.hidden = false;
+    }
+  }
   var monitor = createObservability({
     request: requestStage,
     ready: ensureReady,
@@ -1692,31 +2182,65 @@
     refreshExecution: () => {
       if (result && active === "execution") render();
     },
+    onActivityChange: renderRailActivity,
     adopt: (text2) => {
       inputMode.value = "idea";
       spec.value = text2;
       changeSpec(true);
     }
   });
+  function syncTabIndicator() {
+    syncPillThumb(tabBar);
+    syncPillThumb(wsNav);
+  }
+  window.addEventListener("resize", () => syncTabIndicator());
   function selectWorkspace(discussion, focus = false) {
+    if (discussion) {
+      stopGraphMotion?.();
+      stopGraphMotion = void 0;
+    }
     byId("workspace").hidden = discussion;
     byId("discussion-panel").hidden = !discussion;
     byId("workspace-plan").setAttribute("aria-pressed", String(!discussion));
     byId("workspace-discussion").setAttribute("aria-pressed", String(discussion));
-    if (!discussion && result && active === "graph") render();
+    syncPillThumb(wsNav);
+    if (!discussion) {
+      syncPillThumb(tabBar);
+      if (result && active === "graph") render();
+    }
     if (focus) byId(discussion ? "workspace-discussion" : "workspace-plan").focus();
   }
+  function updateInputSummary() {
+    const summary = byId("input-summary");
+    if (!summary) return;
+    const exampleText = example.selectedOptions[0]?.textContent || "\u81EA\u5B9A\u4E49\u8F93\u5165";
+    summary.textContent = modeLabel() + " \xB7 " + exampleText + " \xB7 \u6BCF\u6279\u4E0A\u9650 " + capacity.value;
+  }
+  var leftCollapse = byId("left-collapse");
+  leftCollapse?.addEventListener("transitionend", () => leftCollapse.classList.remove("is-animating"));
   function showInput(visible) {
     inputCollapsed = !visible;
-    byId("input-body").hidden = !visible;
+    if (leftCollapse) {
+      leftCollapse.classList.add("is-animating");
+      leftCollapse.classList.toggle("is-collapsed", !visible);
+      leftCollapse.setAttribute("aria-hidden", String(!visible));
+    }
     byId("workspace").classList.toggle("input-collapsed", !visible);
     const toggle = byId("toggle-input");
     toggle.setAttribute("aria-expanded", String(visible));
-    toggle.textContent = visible ? "\u6536\u8D77\u8F93\u5165" : "\u5C55\u5F00\u8F93\u5165";
+    byId("toggle-input-label").textContent = visible ? "\u6536\u8D77\u5DE6\u680F" : "\u5C55\u5F00\u5DE6\u680F";
+    const summary = byId("input-summary");
+    if (summary) summary.hidden = visible;
+    updateInputSummary();
+    requestAnimationFrame(() => syncTabIndicator());
   }
   byId("workspace-plan").addEventListener("click", () => selectWorkspace(false));
   byId("workspace-discussion").addEventListener("click", () => selectWorkspace(true));
   byId("toggle-input").addEventListener("click", () => showInput(inputCollapsed));
+  byId("toggle-chain")?.addEventListener("click", () => {
+    chainExpanded = false;
+    renderChain();
+  });
   byId("open-activity").addEventListener("click", () => byId("activity-dialog").showModal());
   function element(tag, content = "", className = "") {
     const node2 = document.createElement(tag);
@@ -1728,13 +2252,21 @@
   examples.forEach(({ name }, index) => example.add(new Option(name, String(index))));
   for (let n = 1; n <= 8; n++) capacity.add(new Option(String(n), String(n)));
   capacity.value = "4";
+  enhanceSelect(inputMode);
+  enhanceSelect(capacity);
+  enhanceSelect(example);
   function modeLabel() {
     return inputMode.value === "idea" ? "\u4EA7\u54C1\u60F3\u6CD5" : "\u8BBE\u8BA1\u89C4\u683C";
   }
   function runLabel() {
-    if (inputMode.value === "design") return draft ? "\u7EE7\u7EED\u751F\u6210\u6D4B\u8BD5\u65B9\u6848 \u2197" : "\u8FD0\u884C\u4EFB\u52A1\u7F16\u6392 \u2197";
-    if (pipeline?.requirements && !pipeline.testPlan) return "\u7EE7\u7EED\u5B8C\u6574\u6D41\u7A0B \u2197";
-    return "\u8FD0\u884C\u5B8C\u6574\u6D41\u7A0B \u2197";
+    if (inputMode.value === "design") return draft ? "\u7EE7\u7EED\u751F\u6210\u6D4B\u8BD5\u65B9\u6848" : "\u8FD0\u884C\u4EFB\u52A1\u7F16\u6392";
+    if (pipeline?.requirements && !pipeline.testPlan) return "\u7EE7\u7EED\u5B8C\u6574\u6D41\u7A0B";
+    return "\u8FD0\u884C\u5B8C\u6574\u6D41\u7A0B";
+  }
+  function setRunLabel(text2) {
+    const label = byId("run-label");
+    if (label) label.textContent = text2;
+    else run.textContent = text2;
   }
   function updateInput() {
     byId("count").textContent = spec.value.length + " / 4000";
@@ -1742,26 +2274,36 @@
     const field = inputMode.value === "idea" ? "idea" : "spec";
     const match = examples.findIndex((item) => item[field] === spec.value);
     example.value = match < 0 ? "" : String(match);
+    syncCustomSelect(inputMode);
+    syncCustomSelect(capacity);
+    syncCustomSelect(example);
     byId("input-error").textContent = "";
+    updateInputSummary();
   }
   function statusMessage(title, body) {
     notice.hidden = false;
     byId("results").hidden = true;
+    byId("metrics").hidden = true;
     byId("exports").hidden = true;
     byId("result-title").textContent = "\u5DE5\u4F5C\u6D41\u8F93\u51FA";
     byId("provenance").textContent = "";
     byId("notice-title").textContent = title;
     byId("notice-body").textContent = body;
+    updateRightRailContext();
+    stopGraphMotion?.();
+    stopGraphMotion = void 0;
     observer?.disconnect();
   }
   function changeSpec(preserveDiscussion = false) {
     result = void 0;
     pipeline = void 0;
     draft = void 0;
+    lastMetricValues = null;
     chainView = "idea";
+    chainExpanded = false;
     if (preserveDiscussion !== true) monitor.reset();
     updateInput();
-    run.textContent = runLabel();
+    setRunLabel(runLabel());
     statusMessage("\u7B49\u5F85\u8FD0\u884C\u5DE5\u4F5C\u6D41", inputMode.value === "idea" ? "\u8F93\u5165\u60F3\u6CD5\u6216\u9009\u62E9\u6848\u4F8B\uFF0C\u751F\u6210\u9700\u6C42\u3001\u8BBE\u8BA1\u548C\u6D4B\u8BD5\u65B9\u6848\uFF0C\u67E5\u770B\u5B9E\u73B0\u7F16\u6392\u4E0E\u8BBE\u8BA1\u56DE\u586B\u3002" : "\u8F93\u5165\u5DF2\u6709\u8BBE\u8BA1\u89C4\u683C\uFF0C\u67E5\u770B\u7F16\u7801\u3001\u6D4B\u8BD5\u548C\u8BC4\u5BA1\u7684\u4F9D\u8D56\u5173\u7CFB\u3002");
     renderChain();
   }
@@ -1840,8 +2382,11 @@
   function lock(value) {
     busy = value;
     for (const control of [spec, inputMode, example, capacity, file, replay, run]) control.disabled = value;
+    syncCustomSelect(inputMode);
+    syncCustomSelect(capacity);
+    syncCustomSelect(example);
     notice.classList.toggle("busy", value);
-    run.textContent = value ? "\u6B63\u5728\u751F\u6210\u2026" : runLabel();
+    setRunLabel(value ? "\u6B63\u5728\u751F\u6210\u2026" : runLabel());
   }
   async function requestStage(endpoint, body, track = true) {
     const labels = {
@@ -1894,6 +2439,7 @@
     pipeline ??= { idea };
     if (!pipeline.requirements) {
       runningStage = "requirements";
+      chainExpanded = true;
       renderChain();
       statusMessage("\u6B63\u5728\u751F\u6210\u9700\u6C42\u89C4\u683C", "\u4F5C\u4E1A\u4E00 \xB7 \u5C06\u4EA7\u54C1\u60F3\u6CD5\u6574\u7406\u4E3A\u7F16\u53F7\u9700\u6C42\u548C\u9A8C\u6536\u6761\u4EF6\u3002");
       const data = await requestStage("requirements", { idea });
@@ -1902,6 +2448,7 @@
     }
     if (!pipeline.design) {
       runningStage = "design";
+      chainExpanded = true;
       renderChain();
       statusMessage("\u6B63\u5728\u751F\u6210\u8BBE\u8BA1\u89C4\u683C", "\u6839\u636E\u9700\u6C42\u89C4\u683C\u751F\u6210\u603B\u4F53\u8BBE\u8BA1\u3001\u6A21\u5757\u5212\u5206\u548C\u63A5\u53E3\u7EA6\u5B9A\u3002");
       const data = await requestStage("design", { requirements: pipeline.requirements });
@@ -1913,11 +2460,13 @@
   async function runImplementation(source) {
     if (!draft) {
       runningStage = "schedule";
+      chainExpanded = true;
       renderChain();
       statusMessage("\u6B63\u5728\u5206\u89E3\u5F00\u53D1\u4EFB\u52A1", "PM Agent \u6B63\u5728\u6309\u8BBE\u8BA1\u89C4\u683C\u5206\u89E3\u6A21\u5757\u3001\u63A5\u53E3\u5951\u7EA6\u548C\u7F16\u7801\u4EFB\u52A1\u3002");
       draft = (await requestStage("decompose", { ...source, draftOnly: true })).plan;
     }
     runningStage = "tests";
+    chainExpanded = true;
     renderChain();
     statusMessage("\u6B63\u5728\u5236\u5B9A\u6D4B\u8BD5\u65B9\u6848", "\u7528\u4F8B\u901A\u8FC7\u6821\u9A8C\u540E\uFF0C\u548C\u7F16\u7801\u3001\u8BC4\u5BA1\u4E00\u8D77\u8FDB\u5165\u4EFB\u52A1\u96C6\uFF0C\u518D\u8BA1\u7B97\u6267\u884C\u6279\u6B21\u3002");
     const { testPlan, ...data } = await requestStage("test-plan", { ...source, plan: draft, draftOnly: true });
@@ -2027,7 +2576,7 @@
       show({ provider, spec: sourceDesign, plan: restoredPlan, model, generatedAt, pipeline, testPlan, mode: "imported" });
       spec.value = input;
       updateInput();
-      run.textContent = runLabel();
+      setRunLabel(runLabel());
       renderChain();
     } catch (error) {
       byId("input-error").textContent = error instanceof SyntaxError ? "\u7ED3\u679C\u6587\u4EF6\u4E0D\u662F\u6709\u6548\u7684 JSON\u3002" : error.message;
@@ -2038,14 +2587,19 @@
     result = data;
     selected = "";
     requirementFilter = "";
+    chainExpanded = false;
+    lastMetricValues = null;
     byId("result-title").textContent = result.plan.project;
     byId("provenance").textContent = (data.mode === "live" ? "\u73B0\u573A\u751F\u6210 \xB7 DeepSeek API" : "\u5DF2\u5BFC\u5165 DeepSeek \u7ED3\u679C") + " \xB7 " + data.model;
     notice.hidden = true;
     byId("results").hidden = false;
+    byId("metrics").hidden = false;
     byId("exports").hidden = false;
     render();
+    syncTabIndicator();
   }
   capacity.addEventListener("change", () => {
+    updateInputSummary();
     if (!result) return;
     arrangement = schedule(result.plan, Number(capacity.value));
     monitor.log("\u91CD\u65B0\u7F16\u6392", "\u5B8C\u6210", "\u6BCF\u6279\u5E76\u884C\u4E0A\u9650 " + capacity.value + "\uFF0C\u5171 " + arrangement.rounds.length + " \u6279");
@@ -2083,14 +2637,24 @@
   }
   byId("go-tasks").addEventListener("click", () => openResults("tasks"));
   byId("go-graph").addEventListener("click", () => openResults("graph"));
-  function openChain(step) {
-    chainView = step;
-    renderChain();
+  var chainDrawer = byId("chain-drawer");
+  chainDrawer?.addEventListener("transitionend", () => chainDrawer.classList.remove("is-animating"));
+  function openChain(step, allowToggle = false) {
     if (step === "schedule") {
+      chainExpanded = false;
+      renderChain();
       openResults("graph");
       return;
     }
-    byId("chain-content").focus();
+    if (allowToggle && chainExpanded && chainView === step && !runningStage) {
+      chainExpanded = false;
+      renderChain();
+      return;
+    }
+    chainView = step;
+    chainExpanded = true;
+    renderChain();
+    byId("chain-content").focus({ preventScroll: true });
   }
   function designCard(part) {
     const card = element("article", "", "chain-card");
@@ -2122,16 +2686,33 @@
       schedule: planningAgents.decompose + " / \u7F16\u6392\u5668",
       feedback: "\u7F16\u6392\u5668"
     };
-    byId("chain-steps").replaceChildren(...steps.map(([id, label]) => {
-      const step = element("button", label);
+    byId("chain-steps").replaceChildren(...steps.map(([id, label], index) => {
+      const step = element("button");
       step.type = "button";
       step.disabled = !available[id];
-      step.setAttribute("aria-pressed", String(id === chainView));
-      step.append(element("span", id === runningStage ? "\u751F\u6210\u4E2D" : available[id] ? id === "idea" ? "\u539F\u59CB\u8F93\u5165" : "\u53EF\u67E5\u770B" : "\u5F85\u751F\u6210"));
-      step.append(element("span", owners[id], "chain-owner"));
-      step.addEventListener("click", () => openChain(id));
+      const isActive = chainExpanded && id === chainView;
+      step.setAttribute("aria-pressed", String(isActive));
+      step.setAttribute("aria-expanded", String(isActive));
+      if (id === runningStage) step.classList.add("is-generating");
+      const head = element("span", "", "chain-step-head");
+      head.append(
+        element("span", "0" + (index + 1), "chain-step-num"),
+        element("span", id === runningStage ? "\u751F\u6210\u4E2D" : available[id] ? id === "idea" ? "\u539F\u59CB\u8F93\u5165" : "\u53EF\u67E5\u770B" : "\u5F85\u751F\u6210", "chain-step-state")
+      );
+      step.append(head, element("span", label), element("span", owners[id], "chain-owner"));
+      step.addEventListener("click", () => openChain(id, true));
       return step;
     }));
+    const drawer = byId("chain-drawer");
+    if (drawer) {
+      const isCollapsed = !chainExpanded;
+      if (drawer.classList.contains("is-collapsed") !== isCollapsed) drawer.classList.add("is-animating");
+      drawer.classList.toggle("is-collapsed", isCollapsed);
+      drawer.setAttribute("aria-hidden", String(isCollapsed));
+    }
+    const drawerLabel = byId("chain-drawer-label");
+    if (drawerLabel) drawerLabel.textContent = (stepLabels.get(chainView) ?? "\u9636\u6BB5\u4EA7\u7269") + " \xB7 \u9636\u6BB5\u4EA7\u7269\u8BE6\u60C5";
+    if (!chainExpanded) return;
     const content = byId("chain-content");
     content.replaceChildren();
     content.scrollTop = 0;
@@ -2217,12 +2798,17 @@
     node2.focus({ preventScroll: true });
   }
   function metrics() {
+    for (const cancel of metricCleanups) cancel();
+    metricCleanups = [];
     const tasks = result.plan.tasks;
     const runtime = monitor.getRuntime();
     const counts = Object.fromEntries(Object.keys(stateLabels).map((state) => [state, 0]));
     tasks.forEach((task) => counts[taskState(task.id, runtime, arrangement)]++);
     const statusCard = element("div", "", "metric metric-status");
-    statusCard.append(element("strong", tasks.length), element("span", "\u4EFB\u52A1\u72B6\u6001\u5206\u5E03", "metric-label"));
+    const statusHead = element("div", "", "metric-head");
+    statusHead.append(element("span", "\u4EFB\u52A1\u72B6\u6001\u5206\u5E03", "metric-label"), element("span", "\u603B\u4EFB\u52A1", "metric-chip chip-indigo"));
+    const totalEl = element("strong", tasks.length);
+    statusCard.append(statusHead, totalEl);
     const stack = element("div", "", "metric-stack");
     stack.setAttribute("role", "img");
     stack.setAttribute("aria-label", Object.keys(stateLabels).map((state) => stateLabels[state] + " " + counts[state] + " \u9879").join("\uFF0C"));
@@ -2233,29 +2819,84 @@
       segment.title = stateLabels[state] + " " + counts[state] + " \u9879";
       stack.append(segment);
     }
-    statusCard.append(stack, element("span", Object.keys(stateLabels).map((state) => stateLabels[state] + " " + counts[state]).join(" \xB7 "), "metric-detail"));
+    const compactCounts = [
+      counts.done ? "\u5B8C\u6210 " + counts.done : "",
+      counts.waiting ? "\u7B49\u8865 " + counts.waiting : "",
+      counts.running ? "\u8FDB\u884C " + counts.running : "",
+      counts.ready ? "\u5C31\u7EEA " + counts.ready : "",
+      counts.failed ? "\u5931\u8D25 " + counts.failed : "",
+      counts.pending ? "\u5F85 " + counts.pending : ""
+    ].filter(Boolean).join(" \xB7 ") || "\u6682\u65E0";
+    statusCard.append(stack, element("span", compactCounts, "metric-detail"));
     const requirementLinks = new Set(tasks.flatMap((task) => task.requirements));
     const tested = tasks.filter((task) => task.test || task.review).length;
     const parallelTasks = arrangement.rounds.filter((batch) => batch.length > 1).flat().length;
-    const proportionCard = (value, total, label) => {
+    const proportionCard = (value, total, label, chipText, chipClass, fillClass, detailText, prevPct) => {
       const card = element("div", "", "metric");
+      const head = element("div", "", "metric-head");
+      head.append(element("span", label, "metric-label"), element("span", chipText, "metric-chip " + chipClass));
       const percent = total ? Math.round(value / total * 100) : 0;
-      card.append(element("strong", percent + "%"), element("span", label, "metric-label"));
+      const numEl = element("strong", percent + "%");
+      card.append(head, numEl);
       const bar = element("span", "", "metric-bar");
-      bar.append(element("span", "", "metric-fill"));
-      bar.firstElementChild.style.width = percent + "%";
+      const fill = element("span", "", "metric-fill" + (fillClass ? " " + fillClass : ""));
+      bar.append(fill);
+      if (reducedMotion()) {
+        fill.style.width = percent + "%";
+      } else {
+        fill.style.width = (prevPct ?? 0) + "%";
+        requestAnimationFrame(() => {
+          if (fill.isConnected) fill.style.width = percent + "%";
+        });
+      }
       bar.setAttribute("role", "img");
       bar.setAttribute("aria-label", value + " / " + total);
-      card.append(bar, element("span", value + " / " + total, "metric-detail"));
-      return card;
+      card.append(bar, element("span", detailText, "metric-detail"));
+      return { card, numEl, percent };
     };
-    byId("metrics").replaceChildren(
-      statusCard,
-      proportionCard(requirementLinks.size, result.plan.requirements.length, "\u9700\u6C42\u5DF2\u5173\u8054"),
-      proportionCard(parallelTasks, tasks.length, "\u4EFB\u52A1\u5904\u4E8E\u5E76\u884C\u6279\u6B21"),
-      proportionCard(tested, tasks.length, "\u4EFB\u52A1\u7ED1\u5B9A\u6D4B\u8BD5\u6216\u8BC4\u5BA1"),
-      statusLegend(stateLabels)
+    const reqTotal = result.plan.requirements.length;
+    const reqMetric = proportionCard(
+      requirementLinks.size,
+      reqTotal,
+      "\u9700\u6C42\u8986\u76D6\u7387",
+      requirementLinks.size === reqTotal ? "\u5168\u5173\u8054" : "\u8986\u76D6",
+      "chip-green",
+      "metric-fill-green",
+      requirementLinks.size + " / " + reqTotal + " \u9700\u6C42\u7ED1\u5B9A\u5B9E\u73B0\u4E0E\u6821\u9A8C",
+      lastMetricValues?.reqPct
     );
+    const parMetric = proportionCard(
+      parallelTasks,
+      tasks.length,
+      "\u5E76\u884C\u6279\u6B21\u5360\u6BD4",
+      "\u4E0A\u9650 " + arrangement.capacity,
+      "chip-indigo",
+      "",
+      parallelTasks + " / " + tasks.length + " \u5904\u4E8E\u591A\u8282\u70B9\u5E76\u884C\u6CF3\u9053",
+      lastMetricValues?.parPct
+    );
+    const testMetric = proportionCard(
+      tested,
+      tasks.length,
+      "\u8D28\u68C0\u95ED\u73AF\u7387",
+      "\u5355\u6D4B+\u8BC4\u5BA1",
+      "chip-amber",
+      "metric-fill-amber",
+      tested + " / " + tasks.length + " \u9879\u4E3A\u6D4B\u8BD5\u4E0E\u8BC4\u5BA1\u95E8\u7981",
+      lastMetricValues?.testPct
+    );
+    const strip = element("div", "", "metrics-strip");
+    strip.append(statusCard, reqMetric.card, parMetric.card, testMetric.card);
+    byId("metrics").replaceChildren(strip);
+    if (lastMetricValues) {
+      metricCleanups.push(
+        animateNumber(totalEl, lastMetricValues.total, tasks.length, ""),
+        animateNumber(reqMetric.numEl, lastMetricValues.reqPct, reqMetric.percent, "%"),
+        animateNumber(parMetric.numEl, lastMetricValues.parPct, parMetric.percent, "%"),
+        animateNumber(testMetric.numEl, lastMetricValues.testPct, testMetric.percent, "%")
+      );
+    }
+    lastMetricValues = { total: tasks.length, reqPct: reqMetric.percent, parPct: parMetric.percent, testPct: testMetric.percent };
   }
   function caseInstructions(test) {
     const list = element("ol", "", "test-steps");
@@ -2274,45 +2915,52 @@
   }
   function taskCard(task, full = false, interactive = false, affectedIds = /* @__PURE__ */ new Set()) {
     const card = element(interactive ? "button" : "article", "", "task");
+    card.dataset.role = task.role;
     const runtime = monitor.getRuntime();
     const state = taskState(task.id, runtime, arrangement);
     const affected = affectedIds.has(task.id);
-    if (interactive) {
-      if (task.role === "\u524D\u7AEF") card.style.borderLeft = "4px solid #3498db";
-      if (task.role === "\u540E\u7AEF") card.style.borderLeft = "4px solid #e74c3c";
-      if (task.role === "\u6D4B\u8BD5") card.style.borderLeft = "4px solid #f39c12";
-      if (task.role === "\u4EA7\u54C1\u8BBE\u8BA1") card.style.borderLeft = "4px solid #9b59b6";
-      if (task.role === "\u8BC4\u5BA1") card.style.borderLeft = "4px solid #23836a";
-    }
     const stage = taskStage(task);
     const agent = agentForTask(task);
+    const head = element("div", "", "task-head");
+    head.append(statusBadge(state, stateLabels[state], { rollbackAffected: affected }));
     card.append(
-      statusBadge(state, stateLabels[state], { rollbackAffected: affected }),
+      head,
       element("span", task.id + " \xB7 " + (stage === "\u7F16\u7801" ? "\u7F16\u7801 / " + task.role : stage) + " \xB7 " + task.requirements.join("\u3001"), "task-meta"),
       element("strong", task.title),
       element("span", agent.name, "task-agent")
     );
     if (full) {
-      card.append(
-        element("p", "\u804C\u8D23\uFF1A" + agent.duty),
-        element("p", "\u58F0\u660E\u8F93\u5165\uFF1A" + (task.inputs.join("\u3001") || "Design Spec")),
-        element("p", "\u4EA4\u4ED8\uFF1A" + task.output),
-        element("p", "\u9A8C\u6536\uFF1A" + task.acceptance)
-      );
-      if (result.pipeline) card.append(element("p", "\u8BBE\u8BA1\u6765\u6E90\uFF1A" + task.designs.join("\u3001")));
-      if (task.test) card.append(element("p", "\u6D4B\u8BD5\u76EE\u6807\u53CA\u5931\u8D25\u5B9A\u4F4D\u8303\u56F4\uFF1A" + task.test.targets.join("\u3001")), ...taskCases(task));
-      if (task.review) card.append(element("p", "\u8BC4\u5BA1\u5BF9\u5E94\u7F16\u7801\uFF1A" + task.review.target));
+      const specs = element("div", "", "task-specs");
+      const addSpec = (key, val) => {
+        const row = element("div", "", "task-spec-row");
+        row.append(element("span", key, "spec-key"), element("span", val, "spec-val"));
+        specs.append(row);
+      };
+      addSpec("\u804C\u8D23", agent.duty);
+      addSpec("\u58F0\u660E\u8F93\u5165", task.inputs.join("\u3001") || "Design Spec");
+      addSpec("\u4EA4\u4ED8", task.output);
+      addSpec("\u9A8C\u6536", task.acceptance);
+      if (result.pipeline) addSpec("\u8BBE\u8BA1\u6765\u6E90", task.designs.join("\u3001"));
+      if (task.test) addSpec("\u6D4B\u8BD5\u5B9A\u4F4D\u8303\u56F4", task.test.targets.join("\u3001"));
+      if (task.review) addSpec("\u8BC4\u5BA1\u5BF9\u5E94\u7F16\u7801", task.review.target);
       const added = arrangement.edges.filter((edge) => edge.to === task.id && !task.inputs.includes(edge.artifact));
-      if (added.length) card.append(element("p", "\u7F16\u6392\u8865\u9F50\u7684\u8F93\u5165\uFF1A" + added.map((edge) => edge.artifact).join("\u3001")));
+      if (added.length) addSpec("\u7F16\u6392\u8865\u9F50\u8F93\u5165", added.map((edge) => edge.artifact).join("\u3001"));
+      card.append(specs);
+      if (task.test) card.append(...taskCases(task));
     }
     return card;
   }
+  var codeTimer;
+  var codeDialog = byId("code-dialog");
+  var codeViewer = byId("code-viewer");
+  var codeHScroll = codeViewer ? createNeuHScroll(codeViewer, "\u4EE3\u7801\u6A2A\u5411\u4F4D\u7F6E\u6ED1\u5757") : null;
+  if (codeDialog && codeHScroll) codeDialog.append(codeHScroll.wrap);
+  codeDialog?.addEventListener("close", () => {
+    clearTimeout(codeTimer);
+    codeTimer = void 0;
+  });
   byId("gen-code").addEventListener("click", () => {
     const projectName = result ? result.plan.project : "\u5F53\u524D\u9879\u76EE";
-    const overlay = document.createElement("div");
-    overlay.style.cssText = "position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(244, 247, 244, 0.85); backdrop-filter: blur(4px); z-index:99999; display:flex; justify-content:center; align-items:center;";
-    const box = document.createElement("div");
-    box.style.cssText = "background:#ffffff; width:80%; max-width:850px; border-radius:12px; border:1px solid #d6e2da; box-shadow: 0 10px 40px rgba(11, 101, 76, 0.15); overflow:hidden; text-align:left; display:flex; flex-direction:column;";
     const codeStr = `
 // \u4EFB\u52A1\uFF1A${projectName} - \u6838\u5FC3\u540E\u7AEF\u63A5\u53E3\u4E0E\u6570\u636E\u6A21\u578B
 // \u6846\u67B6\uFF1ANode.js + TypeScript + Express
@@ -2343,73 +2991,97 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 };`;
-    box.innerHTML = `<div style="background:#f8faf9; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #d6e2da;"><div style="display:flex; align-items:center; gap:10px;"><span style="color:#0b654c; font-weight:bold; font-size:14px;">\u540E\u7AEF\u4EE3\u7801\u793A\u4F8B</span><span style="background:#e9f3ed; color:#0b654c; font-size:12px; padding:2px 8px; border-radius:12px; border:1px solid #c2dfd3;">\u5185\u7F6E\u5C55\u793A\u7247\u6BB5 \xB7 \u5F85\u9002\u914D\u4E0E\u9A8C\u8BC1</span></div><button id="close-code-btn" style="background:#0b654c; color:white; border:none; padding:6px 16px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px; transition:0.2s;" onmouseover="this.style.background='#094b39'" onmouseout="this.style.background='#0b654c'">\u5173\u95ED</button></div><div style="background:#ffffff; padding:20px; overflow:auto; max-height:60vh;"><pre style="margin:0; font-family:Consolas, monospace; font-size:14px; line-height:1.6;"><code id="code-content"></code></pre></div>`;
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-    const codeEl = document.getElementById("code-content");
+    const codeEl = byId("code-content");
+    clearTimeout(codeTimer);
+    codeEl.textContent = "";
+    if (!codeDialog.open) codeDialog.showModal();
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      codeEl.textContent = codeStr;
+      codeHScroll?.sync();
+      return;
+    }
     let i = 0;
     function typeCode() {
+      if (!codeDialog.open) return;
       if (i < codeStr.length) {
-        const chunk = codeStr.slice(i, i + 5);
-        codeEl.textContent += chunk;
+        codeEl.textContent += codeStr.slice(i, i + 5);
         i += 5;
-        codeEl.parentElement.scrollTop = codeEl.parentElement.scrollHeight;
-        setTimeout(typeCode, 10);
+        codeEl.parentElement.parentElement.scrollTop = codeEl.parentElement.parentElement.scrollHeight;
+        codeTimer = setTimeout(typeCode, 10);
+      } else {
+        codeHScroll?.sync();
       }
     }
     typeCode();
-    document.getElementById("close-code-btn").addEventListener("click", () => {
-      overlay.remove();
-    });
   });
   function listTasks(affectedIds) {
-    const table = element("details");
-    table.open = true;
-    table.append(element("summary", "\u9700\u6C42\u4E0E\u9A8C\u6536 \xB7 " + result.plan.requirements.length + " \u6761\u5DF2\u5173\u8054\u4EFB\u52A1\u4E0E\u6D4B\u8BD5"));
-    table.append(element("p", "\u70B9\u51FB\u9700\u6C42\u7F16\u53F7\uFF0C\u67E5\u770B\u652F\u6491\u8BE5\u9700\u6C42\u7684\u4EFB\u52A1\u548C\u9A8C\u6536\u3002", "hint trace-hint"));
-    const list = element("ul", "", "requirements");
-    const taskList = element("div", "", "task-list");
+    const filterBar = element("div", "", "trace-filter-bar");
+    const pills = element("div", "", "trace-pills");
+    pills.setAttribute("aria-label", "\u6309\u9700\u6C42\u7F16\u53F7\u7B5B\u9009\u4EFB\u52A1");
+    const allPill = element("button", "\u5168\u90E8\u9700\u6C42", "trace-button");
+    allPill.type = "button";
+    pills.append(allPill);
     const matchStatus = element("div", "", "hint");
     matchStatus.setAttribute("role", "status");
-    const clear = element("button", "\u663E\u793A\u5168\u90E8\u4EFB\u52A1");
-    clear.type = "button";
-    const traceButtons = /* @__PURE__ */ new Map();
+    matchStatus.style.margin = "0";
+    filterBar.append(pills, matchStatus);
+    const activeBanner = element("div", "", "trace-active-banner");
+    activeBanner.hidden = true;
+    const table = element("details");
+    table.open = false;
+    table.append(element("summary", "\u9700\u6C42\u4E0E\u9A8C\u6536\u660E\u7EC6 \xB7 " + result.plan.requirements.length + " \u6761\uFF08\u53EF\u5C55\u5F00\u6216\u70B9\u4E0A\u65B9\u7F16\u53F7\u7B5B\u9009\uFF09"));
+    const list = element("ul", "", "requirements");
+    const taskList = element("div", "", "task-list");
+    const pillButtons = /* @__PURE__ */ new Map();
+    const detailButtons = /* @__PURE__ */ new Map();
+    const reqById = new Map(result.plan.requirements.map((req) => [req.id, req]));
     function filter(id) {
       requirementFilter = id;
-      for (const [reqId, button2] of traceButtons) button2.setAttribute("aria-pressed", String(id === reqId));
+      allPill.setAttribute("aria-pressed", String(!id));
+      for (const [reqId, button2] of pillButtons) button2.setAttribute("aria-pressed", String(id === reqId));
+      for (const [reqId, button2] of detailButtons) button2.setAttribute("aria-pressed", String(id === reqId));
+      const activeReq = id ? reqById.get(id) : void 0;
+      activeBanner.hidden = !activeReq;
+      if (activeReq) {
+        activeBanner.replaceChildren(
+          element("strong", activeReq.id + " \xB7 " + activeReq.text),
+          element("span", "\u9A8C\u6536\u6807\u51C6\uFF1A" + activeReq.acceptance)
+        );
+      }
       const matches = result.plan.tasks.filter((task) => !id || task.requirements.includes(id));
-      matchStatus.textContent = (id ? id + " \u5BF9\u5E94" : "\u5168\u90E8") + " " + matches.length + " \u9879\u4EFB\u52A1";
-      clear.hidden = !id;
-      taskList.replaceChildren(...matches.map((task) => {
+      matchStatus.textContent = (id ? id + " \u5BF9\u5E94 " : "\u5168\u90E8 ") + matches.length + " \u9879\u4EFB\u52A1";
+      taskList.replaceChildren(...matches.map((task, idx) => {
         const card = taskCard(task, true, false, affectedIds);
-        const locate = element("button", "\u5728\u4F9D\u8D56\u56FE\u4E2D\u67E5\u770B", "task-link");
+        card.classList.add("stagger-in");
+        card.style.setProperty("--stagger", String(Math.min(idx, 8)));
+        const locate = element("button", "\u5728\u4F9D\u8D56\u56FE\u4E2D\u67E5\u770B \u2192", "task-link");
         locate.type = "button";
         locate.addEventListener("click", () => locateGraphTask(task.id));
         card.append(locate);
         return card;
       }));
     }
-    clear.addEventListener("click", () => {
-      const previous = traceButtons.get(requirementFilter);
-      filter("");
-      previous?.focus();
-    });
+    allPill.addEventListener("click", () => filter(""));
     for (const requirement of result.plan.requirements) {
+      const pill = element("button", requirement.id, "trace-button");
+      pill.type = "button";
+      pill.setAttribute("aria-label", "\u6309\u9700\u6C42 " + requirement.id + " \u7B5B\u9009\u4EFB\u52A1");
+      pill.addEventListener("click", () => filter(requirementFilter === requirement.id ? "" : requirement.id));
+      pillButtons.set(requirement.id, pill);
+      pills.append(pill);
       const item = element("li", "", "trace-row");
       const trace = element("button", requirement.id, "trace-button");
       trace.type = "button";
       trace.setAttribute("aria-label", "\u67E5\u770B " + requirement.id + " \u7684\u5173\u8054\u4EFB\u52A1");
       trace.addEventListener("click", () => filter(requirementFilter === requirement.id ? "" : requirement.id));
-      traceButtons.set(requirement.id, trace);
+      detailButtons.set(requirement.id, trace);
       const description = element("div");
       description.append(element("strong", requirement.text), element("br"), element("span", "\u9A8C\u6536\uFF1A" + requirement.acceptance));
       item.append(trace, description);
       list.append(item);
     }
     table.append(list);
-    const toolbar = element("div", "", "trace-toolbar");
-    toolbar.append(matchStatus, clear);
-    view.append(table, toolbar, taskList);
+    view.append(filterBar, activeBanner, table, taskList);
     filter(requirementFilter);
   }
   function showRounds(tasksById, affectedIds) {
@@ -2419,7 +3091,12 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     const chainBatches = new Set(chain.map((id) => arrangement.rounds.findIndex((batch) => batch.includes(id))));
     view.append(element("p", "\u5F53\u524D\u6BCF\u6279\u6700\u591A " + arrangement.capacity + " \u9879\u3002\u4F9D\u8D56\u6DF1\u5EA6\u6700\u957F\u94FE\u8986\u76D6 " + chainBatches.size + " \u4E2A\u6279\u6B21\u3002", "hint"));
     arrangement.rounds.forEach((ids, index) => {
+      const block = element("div", "", "round-block stagger-in");
+      block.style.setProperty("--stagger", String(Math.min(index, 8)));
       const round = element("section", "", "round");
+      const head = element("div", "", "round-head");
+      head.append(element("h3", "\u7B2C " + (index + 1) + " \u6279 \xB7 " + ids.length + " \u9879"));
+      if (chainBatches.has(index)) head.append(element("span", "\u5173\u952E\u8DEF\u5F84", "round-critical-pill"));
       const tasks = element("div", "", "task-list");
       const cards = ids.map((id) => {
         const card = taskCard(tasksById.get(id), false, false, affectedIds);
@@ -2432,8 +3109,12 @@ export const executeCoreTask = async (req: Request, res: Response) => {
         return card;
       });
       tasks.append(...cards);
-      round.append(element("h3", "\u7B2C " + (index + 1) + " \u6279 \xB7 " + ids.length + " \u9879" + (chainBatches.has(index) ? " \xB7 \u5173\u952E\u8DEF\u5F84" : "")), tasks);
-      view.append(round);
+      round.append(head, tasks);
+      const hScroll = createNeuHScroll(tasks, "\u7B2C " + (index + 1) + " \u6279\u6A2A\u5411\u4F4D\u7F6E\u6ED1\u5757");
+      viewCleanups.push(hScroll.destroy);
+      block.append(round, hScroll.wrap);
+      view.append(block);
+      requestAnimationFrame(() => hScroll.sync());
     });
   }
   function overviewEdges(edges, ids) {
@@ -2469,8 +3150,13 @@ export const executeCoreTask = async (req: Request, res: Response) => {
   }
   function showGraph(tasksById, affectedIds) {
     const vertical = graphLayout === "vertical";
-    const layouts = element("div", "", "graph-layouts");
+    const controls = element("div", "", "graph-controls");
+    const controlsTop = element("div", "", "graph-controls-top");
+    const layouts = element("div", "", "graph-layouts soft-toggle");
     layouts.setAttribute("aria-label", "\u4F9D\u8D56\u56FE\u5E03\u5C40");
+    const layoutThumb = element("span", "", "pill-thumb");
+    layoutThumb.setAttribute("aria-hidden", "true");
+    layouts.append(layoutThumb);
     for (const [id, label] of [["horizontal", "\u6A2A\u5411\u4F9D\u8D56\u56FE"], ["vertical", "\u7EB5\u5411\u6267\u884C\u6D41\u7A0B"]]) {
       const toggle = element("button", label);
       toggle.type = "button";
@@ -2480,42 +3166,116 @@ export const executeCoreTask = async (req: Request, res: Response) => {
         if (graphLayout === id) return;
         graphLayout = id;
         render();
-        view.querySelector('[data-layout="' + id + '"]').focus({ preventScroll: true });
+        view.querySelector('[data-layout="' + id + '"]')?.focus({ preventScroll: true });
       });
       layouts.append(toggle);
     }
-    view.append(layouts);
-    const toolbar = element("div", "", "graph-toolbar");
-    const explanation = element("p", "", "hint");
-    explanation.setAttribute("role", "status");
-    const reset = element("button", "\u8FD4\u56DE\u603B\u89C8");
-    reset.type = "button";
-    toolbar.append(explanation, reset);
-    view.append(toolbar);
     const viewportTools = element("div", "", "graph-viewport-tools");
-    const zoom = { scale: 1 };
-    const applyZoom = (scale) => {
+    const zoom = { scale: 1, target: 1, velocity: 0 };
+    let zoomRaf = 0;
+    let panRaf = 0;
+    let pulseRaf = 0;
+    let pulseOrigin = performance.now();
+    let lastPulseRoutes = [];
+    const rangeWrap = element("div", "", "range");
+    rangeWrap.setAttribute("aria-label", "\u4F9D\u8D56\u56FE\u7F29\u653E\u6ED1\u5757");
+    const rangeLabel = element("span", "\u753B\u5E03\u7F29\u653E", "range-label");
+    const rangeTrack = element("div", "", "track");
+    rangeTrack.tabIndex = 0;
+    rangeTrack.setAttribute("role", "slider");
+    rangeTrack.setAttribute("aria-valuemin", "40");
+    rangeTrack.setAttribute("aria-valuemax", "200");
+    rangeTrack.setAttribute("aria-valuenow", "100");
+    rangeTrack.setAttribute("aria-label", "\u7F29\u653E\u6BD4\u4F8B");
+    const rangeFill = element("div", "", "fill");
+    const rangeKnob = element("div", "", "knob");
+    rangeTrack.append(rangeFill, rangeKnob);
+    const zoomReadout = element("div", "100%", "val zoom-readout");
+    zoomReadout.setAttribute("aria-live", "polite");
+    rangeWrap.append(rangeLabel, rangeTrack, zoomReadout);
+    let graphHScroll;
+    const commitZoomScale = (scale) => {
       if (!natural.width) {
         natural.width = graph.offsetWidth;
         natural.height = graph.offsetHeight;
       }
-      zoom.scale = clampScale(scale);
-      const size = scaledSize(natural, zoom.scale);
-      graph.style.transform = "scale(" + zoom.scale + ")";
-      stage.style.width = size.width + "px";
-      stage.style.height = size.height + "px";
-      draw();
+      zoom.scale = scale;
+      const size = scaledSize(natural, scale);
+      graph.style.transform = scale === 1 ? "" : "scale(" + scale + ")";
+      stage.style.width = scale === 1 ? "" : size.width + "px";
+      stage.style.height = scale === 1 ? "" : size.height + "px";
+      const pct = Math.max(0, Math.min(1, (scale - 0.4) / 1.6));
+      rangeFill.style.width = pct * 100 + "%";
+      rangeKnob.style.left = pct * 100 + "%";
+      const pctInt = Math.round(scale * 100);
+      zoomReadout.textContent = pctInt + "%";
+      rangeTrack.setAttribute("aria-valuenow", String(pctInt));
+      const phase = pulseRaf ? (performance.now() - pulseOrigin) / 2100 % 1 : null;
+      draw(phase);
+      graphHScroll?.sync();
     };
-    for (const [label, factor] of [["\u653E\u5927", 1.25], ["\u7F29\u5C0F", 0.8]]) {
-      const control = element("button", label);
-      control.type = "button";
-      control.setAttribute("aria-label", label + "\u4F9D\u8D56\u56FE");
-      control.addEventListener("click", () => {
-        applyZoom(zoom.scale * factor);
-        control.focus();
-      });
-      viewportTools.append(control);
-    }
+    const applyZoom = (scale, immediate = false) => {
+      const clamped = clampScale(scale);
+      zoom.target = clamped;
+      if (immediate || reducedMotion()) {
+        cancelAnimationFrame(zoomRaf);
+        zoomRaf = 0;
+        zoom.velocity = 0;
+        commitZoomScale(clamped);
+        return;
+      }
+      if (zoomRaf) return;
+      let lastTime = performance.now();
+      const tickZoom = (now) => {
+        if (!graph.isConnected) {
+          zoomRaf = 0;
+          return;
+        }
+        const dt = (now - lastTime) / 1e3;
+        lastTime = now;
+        const next = stepSpring(
+          { value: zoom.scale, target: zoom.target, velocity: zoom.velocity },
+          dt,
+          { stiffness: 300, damping: 32, precision: 5e-4 }
+        );
+        zoom.velocity = next.velocity;
+        commitZoomScale(next.value);
+        if (!next.settled) zoomRaf = requestAnimationFrame(tickZoom);
+        else zoomRaf = 0;
+      };
+      zoomRaf = requestAnimationFrame(tickZoom);
+    };
+    let sliderDragging = false;
+    const zoomFromClientX = (clientX) => {
+      const rect = rangeTrack.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+      applyZoom(0.4 + pct * 1.6, true);
+    };
+    rangeTrack.addEventListener("pointerdown", (e) => {
+      sliderDragging = true;
+      rangeWrap.classList.add("is-dragging");
+      rangeTrack.setPointerCapture(e.pointerId);
+      zoomFromClientX(e.clientX);
+    });
+    rangeTrack.addEventListener("pointermove", (e) => {
+      if (sliderDragging) zoomFromClientX(e.clientX);
+    });
+    const stopSliderDrag = () => {
+      sliderDragging = false;
+      rangeWrap.classList.remove("is-dragging");
+    };
+    rangeTrack.addEventListener("pointerup", stopSliderDrag);
+    rangeTrack.addEventListener("pointercancel", stopSliderDrag);
+    rangeTrack.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+        e.preventDefault();
+        applyZoom(zoom.target - 0.1);
+      }
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+        e.preventDefault();
+        applyZoom(zoom.target + 0.1);
+      }
+    });
     const fit = element("button", "\u9002\u5E94\u7A97\u53E3");
     fit.type = "button";
     fit.setAttribute("aria-label", "\u9002\u5E94\u7A97\u53E3");
@@ -2523,8 +3283,28 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       applyZoom(fitScale(natural, { width: scroll.clientWidth, height: scroll.clientHeight }));
       fit.focus();
     });
-    viewportTools.append(fit);
-    view.append(viewportTools);
+    const edgeLegend = element("div", "", "graph-edge-legend");
+    edgeLegend.setAttribute("aria-label", "\u4F9D\u8D56\u8FDE\u7EBF\u56FE\u4F8B");
+    for (const [cls, label] of [
+      ["edge-swatch-up", "\u524D\u7F6E\u4F9D\u8D56"],
+      ["edge-swatch-down", "\u540E\u7EED\u4EFB\u52A1"],
+      ["edge-swatch-rb", "\u5931\u8D25\u53EF\u56DE\u9000"]
+    ]) {
+      const key = element("span", "", "edge-key");
+      key.append(element("span", "", "edge-swatch " + cls), document.createTextNode(label));
+      edgeLegend.append(key);
+    }
+    viewportTools.append(rangeWrap, fit);
+    controlsTop.append(layouts, viewportTools);
+    const toolbar = element("div", "", "graph-toolbar");
+    const explanation = element("p", "", "hint");
+    explanation.setAttribute("role", "status");
+    const reset = element("button", "\u8FD4\u56DE\u603B\u89C8");
+    reset.type = "button";
+    toolbar.append(explanation, edgeLegend, reset);
+    controls.append(controlsTop, toolbar);
+    view.append(controls);
+    requestAnimationFrame(() => syncPillThumb(layouts));
     const scroll = element("div", "", "graph-scroll");
     scroll.tabIndex = 0;
     scroll.setAttribute("aria-label", vertical ? "\u6309\u6267\u884C\u6279\u6B21\u4ECE\u4E0A\u5230\u4E0B\u7684\u6D41\u7A0B\u56FE" : "\u53EF\u6A2A\u5411\u6EDA\u52A8\u7684\u4EFB\u52A1\u4F9D\u8D56\u56FE");
@@ -2539,12 +3319,15 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     scroll.addEventListener("wheel", (event) => {
       if (!event.ctrlKey) return;
       event.preventDefault();
-      applyZoom(zoom.scale * (event.deltaY < 0 ? 1.1 : 0.9));
+      applyZoom(zoom.target * (event.deltaY < 0 ? 1.1 : 0.9));
     }, { passive: false });
     let dragging = false;
     let spaceHeld = false;
     let lastX = 0;
     let lastY = 0;
+    let lastMoveTime = 0;
+    let panVx = 0;
+    let panVy = 0;
     scroll.addEventListener("keydown", (event) => {
       if (event.code === "Space" && !event.target.matches("button, input, select, textarea, a")) {
         spaceHeld = true;
@@ -2556,28 +3339,56 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     });
     scroll.addEventListener("pointerdown", (event) => {
       if (event.button !== 1 && !spaceHeld) return;
+      cancelAnimationFrame(panRaf);
+      panRaf = 0;
       dragging = true;
       lastX = event.clientX;
       lastY = event.clientY;
+      lastMoveTime = performance.now();
+      panVx = panVy = 0;
       scroll.setPointerCapture(event.pointerId);
       event.preventDefault();
     });
     scroll.addEventListener("pointermove", (event) => {
       if (!dragging) return;
-      scroll.scrollLeft -= event.clientX - lastX;
-      scroll.scrollTop -= event.clientY - lastY;
+      const now = performance.now();
+      const dt = Math.max(4e-3, (now - lastMoveTime) / 1e3);
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      scroll.scrollLeft -= dx;
+      scroll.scrollTop -= dy;
+      panVx = panVx * 0.45 + -dx / dt * 0.55;
+      panVy = panVy * 0.45 + -dy / dt * 0.55;
       lastX = event.clientX;
       lastY = event.clientY;
+      lastMoveTime = now;
       event.preventDefault();
     });
     let dragged = false;
     scroll.addEventListener("pointerup", (event) => {
-      if (dragging) {
-        dragging = false;
-        dragged = true;
-        scroll.releasePointerCapture(event.pointerId);
-        event.preventDefault();
-      }
+      if (!dragging) return;
+      dragging = false;
+      dragged = true;
+      scroll.releasePointerCapture(event.pointerId);
+      event.preventDefault();
+      if (reducedMotion() || Math.hypot(panVx, panVy) < 40) return;
+      let prev = performance.now();
+      const glide = (now) => {
+        if (!scroll.isConnected || dragging) {
+          panRaf = 0;
+          return;
+        }
+        const dt = Math.min(0.032, (now - prev) / 1e3);
+        prev = now;
+        const decay = Math.exp(-8.5 * dt);
+        panVx *= decay;
+        panVy *= decay;
+        scroll.scrollLeft += panVx * dt;
+        scroll.scrollTop += panVy * dt;
+        if (Math.hypot(panVx, panVy) >= 14) panRaf = requestAnimationFrame(glide);
+        else panRaf = 0;
+      };
+      panRaf = requestAnimationFrame(glide);
     });
     scroll.addEventListener("click", (event) => {
       if (dragged) {
@@ -2598,7 +3409,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     const reason = result.plan.serialJustification;
     if (typeof reason === "string" && reason) view.append(element("p", "\u7F16\u7801\u9700\u4E32\u884C\uFF1A" + reason, "hint"));
     const graphArea = element("div", "", vertical ? "graph-area vertical-area" : "graph-area");
-    function draw() {
+    function draw(pulsePhase = null) {
       const edges = selected ? arrangement.edges.filter((edge) => edge.from === selected || edge.to === selected) : overview;
       const bounds = graph.getBoundingClientRect();
       const begin = (box) => vertical ? box.top - bounds.top : box.left - bounds.left;
@@ -2631,72 +3442,143 @@ export const executeCoreTask = async (req: Request, res: Response) => {
         }
       }
       gutters.forEach((tracks, index) => {
-        const left = endOf(columns[index].getBoundingClientRect()) + 8;
-        const right = begin(columns[index + 1].getBoundingClientRect()) - 10;
+        const left = endOf(columns[index].getBoundingClientRect()) + 8 * zoom.scale;
+        const right = begin(columns[index + 1].getBoundingClientRect()) - 10 * zoom.scale;
         tracks.sort((a, b) => a.order - b.order || a.route.y1 - b.route.y1 || a.route.y2 - b.route.y2);
         tracks.forEach(({ route, key }, lane) => {
           route[key] = left + (right - left) * (lane + 1) / (tracks.length + 1);
         });
       });
       const rows = [];
-      const laneStart = Math.max(...columns.map((column) => acrossEnd((vertical ? column : column.lastElementChild).getBoundingClientRect()))) + 18;
+      const laneStart = Math.max(...columns.map((column) => acrossEnd((vertical ? column : column.lastElementChild).getBoundingClientRect()))) + 18 * zoom.scale;
       longRoutes.sort((a, b) => a.start.batch - b.start.batch || a.end.batch - b.end.batch);
       for (const route of longRoutes) {
         let row = rows.findIndex((end) => end < route.start.batch);
         if (row === -1) row = rows.length;
         rows[row] = route.end.batch;
-        route.floor = laneStart + row * 11;
+        route.floor = laneStart + row * 11 * zoom.scale;
       }
       const returns = vertical && selected ? rollbackTargets(tasksById.get(selected)) : [];
-      graph.style[vertical ? "paddingRight" : "paddingBottom"] = 26 + (rows.length + returns.length) * 11 + "px";
+      const padProp = vertical ? "paddingRight" : "paddingBottom";
+      const targetPad = 26 + (rows.length + returns.length) * 11 + "px";
+      if (graph.style[padProp] !== targetPad) graph.style[padProp] = targetPad;
+      natural.width = graph.offsetWidth;
+      natural.height = graph.offsetHeight;
+      if (zoom.scale !== 1) {
+        const size = scaledSize(natural, zoom.scale);
+        stage.style.width = size.width + "px";
+        stage.style.height = size.height + "px";
+      }
       const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.ceil(stage.clientWidth * ratio);
-      canvas.height = Math.ceil(stage.clientHeight * ratio);
-      canvas.style.width = stage.clientWidth + "px";
-      canvas.style.height = stage.clientHeight + "px";
+      const targetW = Math.ceil(stage.clientWidth * ratio);
+      const targetH = Math.ceil(stage.clientHeight * ratio);
+      if (canvas.width !== targetW) {
+        canvas.width = targetW;
+        canvas.style.width = stage.clientWidth + "px";
+      }
+      if (canvas.height !== targetH) {
+        canvas.height = targetH;
+        canvas.style.height = stage.clientHeight + "px";
+      }
       const context = canvas.getContext("2d");
-      context.scale(ratio, ratio);
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
       context.lineJoin = "round";
+      const position = ([along, across]) => vertical ? [across, along] : [along, across];
       function drawRoute(points, color, dashed = false) {
-        const position = ([along2, across2]) => vertical ? [across2, along2] : [along2, across2];
         const [along, across] = points.at(-1);
         const direction = Math.sign(along - points.at(-2)[0]);
         context.strokeStyle = context.fillStyle = color;
-        context.lineWidth = 1.6;
+        context.lineWidth = 1.65;
         context.setLineDash(dashed ? [5, 4] : []);
         context.beginPath();
-        context.moveTo(...position(points[0]));
-        for (const point of points.slice(1)) context.lineTo(...position(point));
+        const mapped = points.map(position);
+        context.moveTo(mapped[0][0], mapped[0][1]);
+        for (let i = 1; i < mapped.length - 1; i++) {
+          const [x0, y0] = mapped[i - 1];
+          const [x1, y1] = mapped[i];
+          const [x2, y2] = mapped[i + 1];
+          const r = Math.min(6 * zoom.scale, Math.hypot(x1 - x0, y1 - y0) / 2, Math.hypot(x2 - x1, y2 - y1) / 2);
+          if (r > 0.5) context.arcTo(x1, y1, x2, y2, r);
+          else context.lineTo(x1, y1);
+        }
+        const [lastX2, lastY2] = mapped.at(-1);
+        context.lineTo(lastX2, lastY2);
         context.stroke();
+        context.setLineDash([]);
         context.beginPath();
         context.moveTo(...position([along, across]));
-        context.lineTo(...position([along - direction * 6, across - 4]));
-        context.lineTo(...position([along - direction * 6, across + 4]));
+        context.lineTo(...position([along - direction * 6.5, across - 4]));
+        context.lineTo(...position([along - direction * 6.5, across + 4]));
         context.fill();
       }
+      lastPulseRoutes = [];
       for (const { edge, start, end, y1, y2, out, in: entry, floor } of routes) {
         const points = [[start.right, y1], [out, y1]];
         if (floor !== void 0) points.push([out, floor], [entry, floor], [entry, y2]);
         else points.push([out, y2]);
         points.push([end.left - 2, y2]);
-        drawRoute(points, edge.to === selected ? "#376e9e" : "#34745e");
+        const baseColor = edge.to === selected ? pulsePhase !== null ? "rgba(59, 130, 246, 0.55)" : "#3b82f6" : pulsePhase !== null ? "rgba(79, 70, 229, 0.36)" : "#4f46e5";
+        drawRoute(points, baseColor);
+        if (selected) lastPulseRoutes.push({ points, rgb: edge.to === selected ? "59, 130, 246" : "79, 70, 229" });
       }
       returns.forEach((id, index) => {
         const from = nodes.get(selected);
         const to = nodes.get(id);
-        const lane = laneStart + (rows.length + index) * 11;
-        const leave = endOf(columns[from.batch].getBoundingClientRect()) + 16 + index * 4;
-        const enter = endOf(columns[to.batch].getBoundingClientRect()) + 19;
-        drawRoute([
+        const lane = laneStart + (rows.length + index) * 11 * zoom.scale;
+        const leave = endOf(columns[from.batch].getBoundingClientRect()) + (16 + index * 4) * zoom.scale;
+        const enter = endOf(columns[to.batch].getBoundingClientRect()) + 19 * zoom.scale;
+        const points = [
           [from.right, from.middle + 6],
           [leave, from.middle + 6],
           [leave, lane],
           [enter, lane],
           [enter, to.middle + 6],
           [to.right + 3, to.middle + 6]
-        ], "#b56726", true);
+        ];
+        drawRoute(points, pulsePhase !== null ? "rgba(181, 103, 38, 0.45)" : "#b56726", true);
+        if (selected) lastPulseRoutes.push({ points, rgb: "79, 70, 229" });
       });
+      if (pulsePhase !== null && selected && !reducedMotion()) {
+        for (const { points, rgb } of lastPulseRoutes) {
+          drawBeamAlongPolyline(context, points, pulsePhase, { position, tailLen: 0.28, color: rgb });
+        }
+      }
     }
+    function stopPulse() {
+      cancelAnimationFrame(pulseRaf);
+      pulseRaf = 0;
+      scroll.dataset.pulseActive = "false";
+    }
+    function startPulse() {
+      if (!selected || reducedMotion() || document.hidden || byId("workspace").hidden) {
+        stopPulse();
+        return;
+      }
+      if (pulseRaf) return;
+      scroll.dataset.pulseActive = "true";
+      const stepPulse = (now) => {
+        if (!selected || reducedMotion() || document.hidden || !graph.isConnected || byId("workspace").hidden) {
+          stopPulse();
+          return;
+        }
+        if (!zoomRaf) draw((now - pulseOrigin) / 2100 % 1);
+        pulseRaf = requestAnimationFrame(stepPulse);
+      };
+      pulseRaf = requestAnimationFrame(stepPulse);
+    }
+    const onVisibilityChange = () => {
+      if (document.hidden) stopPulse();
+      else startPulse();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    stopGraphMotion = () => {
+      cancelAnimationFrame(zoomRaf);
+      cancelAnimationFrame(panRaf);
+      zoomRaf = panRaf = 0;
+      stopPulse();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
     function select(id) {
       selected = id;
       graphArea.classList.toggle("has-selection", Boolean(id));
@@ -2705,13 +3587,15 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       if (!id) {
         breadcrumb.replaceChildren();
         const hidden = arrangement.edges.length - overview.length;
-        explanation.textContent = parallel + " \u6279\u542B\u5E76\u884C\u4EFB\u52A1\u3002\u603B\u89C8\u663E\u793A " + overview.length + " \u6761\u8FDE\u7EBF\u3002" + (hidden ? "\u53E6\u6709 " + hidden + " \u6761\u53EF\u901A\u8FC7\u4E2D\u95F4\u4EFB\u52A1\u8FFD\u6EAF\u3002" : "") + "\u70B9\u51FB\u4EFB\u52A1\u53EF\u67E5\u770B\u5B83\u7684\u5168\u90E8\u76F4\u63A5\u4F9D\u8D56\u3002";
+        explanation.textContent = parallel + " \u6279\u542B\u5E76\u884C\u4EFB\u52A1\u3002\u603B\u89C8\u663E\u793A " + overview.length + " \u6761\u8FDE\u7EBF\u3002" + (hidden ? "\u53E6\u6709 " + hidden + " \u6761\u53EF\u901A\u8FC7\u4E2D\u95F4\u4EFB\u52A1\u8FFD\u6EAF\u3002" : "") + "\u70B9\u51FB\u4EFB\u52A1\u5C0F\u5361\u53EF\u5728\u53F3\u680F\u68C0\u89C6\u8BE6\u60C5\u3002";
         detail.replaceChildren();
+        updateRightRailContext();
+        stopPulse();
         draw();
         return;
       }
       const count = arrangement.edges.filter((edge) => edge.from === id || edge.to === id).length;
-      explanation.textContent = id + " \u7684 " + count + " \u6761\u8FDE\u7EBF \xB7 \u84DD\u8272\u4E3A\u524D\u7F6E\u4F9D\u8D56\uFF0C\u7EFF\u8272\u6307\u5411\u540E\u7EED\u4EFB\u52A1\u3002";
+      explanation.textContent = id + " \u7684 " + count + " \u6761\u8FDE\u7EBF \xB7 \u84DD\u8272\u4E3A\u524D\u7F6E\u4F9D\u8D56\uFF0C\u975B\u84DD\u6307\u5411\u540E\u7EED\u4EFB\u52A1\u3002";
       const task = tasksById.get(id);
       const card = taskCard(task, true, false, affectedIds);
       const upstream = transitiveUpstream(id, arrangement.dependencies);
@@ -2722,10 +3606,11 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       root.addEventListener("click", () => select(""));
       breadcrumb.append(root);
       for (const item of focusBreadcrumb(id, arrangement.dependencies).slice(0, -1)) {
-        const link = element("button", item.id, "task-link");
+        const itemId = typeof item === "string" ? item : item.id;
+        const link = element("button", itemId, "task-link");
         link.type = "button";
-        link.addEventListener("click", () => select(item.id));
-        link.addEventListener("click", () => buttons.get(item.id)?.scrollIntoView({ block: "nearest", inline: "center" }));
+        link.addEventListener("click", () => select(itemId));
+        link.addEventListener("click", () => buttons.get(itemId)?.scrollIntoView({ block: "nearest", inline: "center" }));
         breadcrumb.append(element("span", " / "), link);
       }
       breadcrumb.append(element("span", " / " + id));
@@ -2781,12 +3666,15 @@ export const executeCoreTask = async (req: Request, res: Response) => {
         card.append(relations);
       }
       detail.replaceChildren(card);
-      draw();
+      updateRightRailContext(id, inspector);
+      pulseOrigin = performance.now();
+      draw(reducedMotion() ? null : 0);
+      startPulse();
     }
     orderedRounds.forEach((ids, index) => {
       const column = element("section", "", "column");
       const batchLabel = element("h3", "\u7B2C " + (index + 1) + " \u6279");
-      if (vertical && ids.length > 1) batchLabel.append(element("span", ids.length + " \u9879\u53EF\u5E76\u884C"));
+      if (ids.length > 1) batchLabel.append(element("span", vertical ? ids.length + " \u9879\u53EF\u5E76\u884C" : ids.length + " \u9879"));
       column.append(batchLabel);
       for (const id of ids) {
         const button2 = taskCard(tasksById.get(id), false, true, affectedIds);
@@ -2800,7 +3688,13 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       graph.append(column);
       columns.push(column);
     });
-    graphArea.append(scroll, breadcrumb, detail);
+    const inspector = element("div", "", "graph-inspector");
+    inspector.append(breadcrumb, detail);
+    graphHScroll = createNeuHScroll(scroll, "\u4F9D\u8D56\u56FE\u6A2A\u5411\u4F4D\u7F6E\u6ED1\u5757");
+    viewCleanups.push(graphHScroll.destroy);
+    const graphScrollShell = element("div", "", "graph-scroll-shell");
+    graphScrollShell.append(scroll, graphHScroll.wrap);
+    graphArea.append(graphScrollShell);
     view.append(graphArea);
     natural.width = graph.offsetWidth;
     natural.height = graph.offsetHeight;
@@ -2810,14 +3704,24 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       node2?.focus({ preventScroll: true });
     });
     select(selected);
+    requestAnimationFrame(() => graphHScroll?.sync());
     observer?.disconnect();
-    observer = new ResizeObserver(draw);
+    observer = new ResizeObserver(() => {
+      draw(pulseRaf ? (performance.now() - pulseOrigin) / 2100 % 1 : null);
+      graphHScroll?.sync();
+    });
     observer.observe(graph);
   }
   function render() {
+    stopGraphMotion?.();
+    stopGraphMotion = void 0;
+    for (const cleanup of viewCleanups) cleanup();
+    viewCleanups = [];
     observer?.disconnect();
     tabs.forEach((button2) => button2.setAttribute("aria-pressed", String(active === button2.dataset.view)));
+    syncTabIndicator();
     view.replaceChildren();
+    updateRightRailContext();
     metrics();
     const tasks = new Map(result.plan.tasks.map((task) => [task.id, task]));
     const affectedIds = rollbackAffectedIds(result.plan.tasks, arrangement, monitor.getRuntime(), rollbackTargets);
@@ -2959,7 +3863,10 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     downloadFile("\u5F00\u53D1\u6267\u884C\u8BA1\u5212.md", lines.join("\n") + "\n", "text/markdown;charset=utf-8");
   });
   byId("startup").hidden = true;
-  for (const id of ["workspace", "workspace-nav", "mast-actions", "flow"]) byId(id).hidden = false;
+  for (const id of ["workspace", "workspace-nav", "mast-actions", "flow", "app-foot"]) byId(id).hidden = false;
+  byId("legend-slot")?.replaceChildren(statusLegend(stateLabels));
+  renderRailActivity([]);
+  syncTabIndicator();
   changeSpec();
   void checkStatus();
 })();

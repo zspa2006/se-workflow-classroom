@@ -4,6 +4,7 @@ import {agentForTask, approvedHandoffs, currentAgentOutput, validateAgentOutput}
 import {stanceLabels, discussionParticipants, acknowledgedAll, startConsensusRound,
   registerStance, confirmConsensus, validateConsensus} from './consensus.mjs';
 import {statusBadge, rollbackAffectedIds} from './status.mjs';
+import {enhanceSelect, createNeuHScroll} from './motion.mjs';
 
 // ===== 结构化观测扩展：纯增量，既有 log 事件与导出字段保持原样 =====
 export const EVENT_TYPES = Object.freeze({
@@ -192,8 +193,10 @@ const button = (text, handler) => {
 const verdictLabels = {pass:'评审通过', changes_requested:'建议返工', needs_evidence:'需要补充证据'};
 
 export function createObservability({request, ready, adopt, getResult, getArrangement, download, isBusy, setBusy, renderCases, openPlan,
-  refreshExecution}) {
-  let events = [], runtime = {}, discussion;
+  refreshExecution, onActivityChange}) {
+  let events = [], runtime = {}, discussion, execFilter = 'all';
+  let prevExecStates = new Map();
+  let suppressExecStagger = false;
   const pendingAgents = new Map();
   const noteDrafts = new Map();
   const activity = document.getElementById('activity');
@@ -215,6 +218,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     }));
     document.getElementById('event-count').textContent = events.length;
     document.getElementById('activity-empty').hidden = events.length > 0;
+    onActivityChange?.(events);
   }
 
   extract.addEventListener('click', async () => {
@@ -259,13 +263,18 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     original.append(node('summary', '查看带行号的讨论原文'),
       node('pre', discussion.transcript.split(/\r?\n/).map((line,i) => (i+1) + '  ' + line).join('\n'), 'transcript-source'));
     discussionResult.append(original);
+    const pointsGrid = node('div', '', 'points-grid');
     for (const point of discussion.points) {
       const card = node('article', '', 'chain-card');
-      card.append(node('h4', point.id + ' · ' + (point.kind === 'open' ? '待确认' : '明确意见')),
-        node('p', point.text));
+      const head = node('div', '', 'point-head');
+      const kindBadge = node('span', point.kind === 'open' ? '待确认' : '明确意见',
+        'point-badge ' + (point.kind === 'open' ? 'point-open' : 'point-decision'));
+      head.append(node('h4', point.id), kindBadge);
+      card.append(head, node('p', point.text));
       for (const evidence of point.evidence) card.append(node('blockquote', '第 ' + evidence.line + ' 行 · ' + evidence.quote));
-      discussionResult.append(card);
+      pointsGrid.append(card);
     }
+    discussionResult.append(pointsGrid);
     const rounds = discussion.rounds ?? [];
     const current = rounds.at(-1);
     if (!current) {
@@ -296,6 +305,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       log('共识确认', '全员同意', '第 ' + current.number + ' 轮获 ' + discussion.participants.length + ' 位参与者同意，已转入产品想法',
         {round: current.number, participants: discussion.participants});
     }));
+    confirm.className = 'btn-solid';
     confirm.disabled = !readyToConfirm;
     discussionResult.append(node('p', readyToConfirm ? '全员已同意本轮提案。' : '本轮全员同意后可转入产品想法。', 'hint'), confirm);
     const revise = node('details', '', 'consensus-history');
@@ -346,7 +356,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       return [vote.participant, field];
     });
     const read = fields => Object.fromEntries(fields.map(([id, field]) => [id, field.value]));
-    editor.append(button(previous ? '提交修订并开启新一轮' : '开启第一轮确认', () => updateDiscussion(() => {
+    const submitProposal = button(previous ? '提交修订并开启新一轮' : '开启第一轮确认', () => updateDiscussion(() => {
       discussion = startConsensusRound(discussion, {
         participants: roster?.value.split(/\r?\n/).filter(line => line.trim()),
         proposal: proposal.value, resolutions: read(decisions), responses: read(responses),
@@ -354,7 +364,9 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       const round = discussion.rounds.at(-1);
       log('共识确认', '开启第 ' + round.number + ' 轮', round.proposal,
         {round: round.number, participants: discussion.participants, responses: round.responses});
-    })));
+    }));
+    submitProposal.className = 'btn-solid';
+    editor.append(submitProposal);
     return editor;
   }
 
@@ -363,22 +375,33 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     const byName = new Map(round.votes.map(vote => [vote.participant, vote]));
     const agrees = round.votes.filter(vote => vote.stance === 'agree').length;
     const card = node('article', '', 'chain-card consensus-round');
-    card.append(node('h3', '第 ' + round.number + ' 轮 · ' + agrees + ' / ' + discussion.participants.length + ' 同意'),
-      node('p', round.proposal, 'chain-text'));
+    const roundHead = node('div', '', 'point-head');
+    roundHead.append(node('h3', '第 ' + round.number + ' 轮提案'),
+      node('span', agrees + ' / ' + discussion.participants.length + ' 同意',
+        'point-badge ' + (agrees === discussion.participants.length ? 'point-decision' : 'point-open')));
+    card.append(roundHead, node('p', round.proposal, 'chain-text'));
     for (const [id, answer] of Object.entries(round.resolutions)) card.append(node('p', id + ' · ' + answer));
     const list = node('ul');
     for (const name of discussion.participants) {
       const vote = byName.get(name);
-      const row = node('li', name + ' · ' + (vote ? stanceLabels[vote.stance] : '待登记'));
-      if (vote?.note) row.append(node('span', (vote.point ? vote.point + ' · ' : '') + vote.note));
+      const row = node('li');
+      const rowHead = node('div', '', 'vote-row-head');
+      const stanceClass = !vote ? 'point-pending' : vote.stance === 'agree' ? 'point-decision'
+        : vote.stance === 'reserve' ? 'point-reserve' : 'point-object';
+      rowHead.append(
+        node('span', name),
+        node('span', vote ? stanceLabels[vote.stance] : '待登记', 'point-badge ' + stanceClass)
+      );
+      row.append(rowHead);
+      if (vote?.note) row.append(node('span', (vote.point ? vote.point + ' · ' : '') + vote.note, 'vote-note'));
       if (vote && vote.stance !== 'agree') {
         const revised = discussion.rounds[round.number];
         const reply = revised?.responses[name];
         const closed = discussion.rounds.slice(round.number).find(later =>
           later.votes.some(item => item.participant === name && item.stance === 'agree'));
-        if (reply) row.append(node('span', '第 ' + revised.number + ' 轮回应 · ' + reply));
+        if (reply) row.append(node('span', '第 ' + revised.number + ' 轮回应 · ' + reply, 'vote-note'));
         row.append(node('span', closed ? '异议已关闭 · 本人于第 ' + closed.number + ' 轮同意修订稿'
-          : reply ? '等待该参与者确认修订稿' : '待回应'));
+          : reply ? '等待该参与者确认修订稿' : '待回应', 'vote-note'));
       }
       list.append(row);
     }
@@ -395,24 +418,28 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     const participant = labeled(form, '参与者', node('select'));
     participant.add(new Option('选择待登记参与者', ''));
     names.forEach(name => participant.add(new Option(name, name)));
+    enhanceSelect(participant);
     const stance = labeled(form, '立场', node('select'));
     stance.add(new Option('选择立场', ''));
     for (const [id, label] of Object.entries(stanceLabels)) stance.add(new Option(label, id));
+    enhanceSelect(stance);
     const point = labeled(form, '涉及要点（适用于异议）', node('select'));
     point.add(new Option('整份提案', ''));
     for (const item of discussion.points) point.add(new Option(item.id + ' · ' + item.text, item.id));
+    enhanceSelect(point);
     const note = labeled(form, '意见说明（反对或保留时必填）', node('input'));
     note.maxLength = 500;
-    form.append(node('p', '请登记参与者已经表达的立场。', 'hint'),
-      button('登记立场', () => updateDiscussion(() => {
-        discussion = registerStance(discussion, {
-          participant: participant.value, stance: stance.value, point: point.value, note: note.value,
-        });
-        const round = discussion.rounds.at(-1);
-        const vote = round.votes.at(-1);
-        log('共识确认', stanceLabels[vote.stance], '第 ' + round.number + ' 轮 · ' + vote.participant +
-          (vote.note ? ' · ' + vote.note : ''), {round: round.number, ...vote});
-      })));
+    const registerBtn = button('登记立场', () => updateDiscussion(() => {
+      discussion = registerStance(discussion, {
+        participant: participant.value, stance: stance.value, point: point.value, note: note.value,
+      });
+      const round = discussion.rounds.at(-1);
+      const vote = round.votes.at(-1);
+      log('共识确认', stanceLabels[vote.stance], '第 ' + round.number + ' 轮 · ' + vote.participant +
+        (vote.note ? ' · ' + vote.note : ''), {round: round.number, ...vote});
+    }));
+    registerBtn.className = 'btn-solid';
+    form.append(node('p', '请登记参与者已经表达的立场。', 'hint'), registerBtn);
     return form;
   }
 
@@ -461,6 +488,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       if (getResult() === result) {
         if (token.error) agentErrors.set(task.id, token.error);
         else agentErrors.delete(task.id);
+        suppressExecStagger = true;
         refreshExecution();
       }
     }
@@ -472,50 +500,125 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     const arrangement = getArrangement();
     const tasks = new Map(plan.tasks.map(task => [task.id, task]));
     const affected = rollbackAffectedIds(plan.tasks, arrangement, runtime, rollbackTargets);
+    const taskEntries = plan.tasks.map(task => ({task, state: taskState(task.id, runtime, arrangement)}));
+    const shouldStagger = !suppressExecStagger;
+    suppressExecStagger = false;
+    const filterCounts = {all: taskEntries.length, ready: 0, active: 0, failed: 0, done: 0};
+    for (const {state} of taskEntries) {
+      if (state === 'ready') filterCounts.ready++;
+      else if (state === 'running' || state === 'waiting') filterCounts.active++;
+      else if (state === 'failed') filterCounts.failed++;
+      else if (state === 'done') filterCounts.done++;
+    }
     container.append(node('p', '节点通过 DeepSeek API 调用对应 Agent。负责人确认后，产物才会传给依赖它的节点。测试脚本由负责人在项目环境运行。', 'hint'));
+    const toolbar = node('div', '', 'exec-toolbar');
+    const filters = node('div', '', 'exec-filters');
+    filters.setAttribute('aria-label', '按任务状态筛选');
+    for (const [filterId, label] of [
+      ['all', '全部'],
+      ['ready', '可开始'],
+      ['active', '进行中·等补充'],
+      ['failed', '失败待处理'],
+      ['done', '已完成'],
+    ]) {
+      const btn = button(label + ' (' + filterCounts[filterId] + ')', () => {
+        execFilter = filterId;
+        suppressExecStagger = false;
+        refreshExecution();
+      });
+      btn.className = 'exec-filter-btn';
+      btn.dataset.filter = filterId;
+      btn.setAttribute('aria-pressed', String(execFilter === filterId));
+      filters.append(btn);
+    }
     const batch = button('并行调用就绪 Agent', async () => {
       if (isBusy() || !await ready() || getResult()?.plan !== plan) return;
       const available = arrangement.rounds.flat().filter(id => taskState(id, runtime, arrangement) === 'ready');
       await Promise.all(available.slice(0, Math.max(0, arrangement.capacity - pendingAgents.size))
         .map(id => callNodeAgent(tasks.get(id))));
     });
-    batch.disabled = pendingAgents.size >= arrangement.capacity ||
-      !plan.tasks.some(task => taskState(task.id, runtime, arrangement) === 'ready');
-    container.append(batch);
-    for (const task of plan.tasks) {
-      const state = taskState(task.id, runtime, arrangement);
+    batch.className = 'btn-ai';
+    batch.disabled = pendingAgents.size >= arrangement.capacity || !filterCounts.ready;
+    toolbar.append(filters, batch);
+    container.append(toolbar);
+    const visibleEntries = taskEntries.filter(({state}) => {
+      if (execFilter === 'all') return true;
+      if (execFilter === 'active') return state === 'running' || state === 'waiting';
+      return state === execFilter;
+    });
+    if (!visibleEntries.length) {
+      prevExecStates = new Map(taskEntries.map(e => [e.task.id, e.state]));
+      const empty = node('p', '当前状态筛选下暂无任务，可点击「全部」查看全部节点。', 'hint');
+      container.append(empty);
+      return;
+    }
+    visibleEntries.forEach(({task, state}, idx) => {
       const card = node('article', '', 'execution-card');
       card.id = 'execution-' + task.id;
+      card.dataset.role = task.role;
       card.tabIndex = -1;
+      if (shouldStagger) {
+        card.classList.add('stagger-in');
+        card.style.setProperty('--stagger', String(Math.min(idx, 8)));
+      }
+      if (prevExecStates.size && prevExecStates.get(task.id) !== state) {
+        card.classList.add('just-updated');
+      }
       const agent = agentForTask(task);
       const output = currentAgentOutput(runtime[task.id]);
       const inFlight = pendingAgents.has(task.id);
+      const head = node('div', '', 'exec-head');
       const stateLine = node('p', '', 'execution-status');
       stateLine.append(statusBadge(state, stateLabels[state], {rollbackAffected: affected.has(task.id)}),
         node('span', ' · ' + agent.name + ' · ' + taskStage(task) + (inFlight ? ' · Agent 生成中' : '') +
-          ' · 尝试 ' + (runtime[task.id]?.attempts || 0) + ' 次'));
-      card.append(node('h3', task.id + ' · ' + task.title), stateLine,
-        node('p', agent.duty),
-        node('p', '预期交付物：' + task.output),
-        node('p', '前置：' + (arrangement.dependencies[task.id].map(id => id + ' ' + stateLabels[taskState(id, runtime, arrangement)]).join('、') || '无')));
-      if (task.test) card.append(node('p', '测试目标：' + task.test.targets
-        .map(id => id + ' ' + tasks.get(id).title).join('、')), ...renderCases(task));
-      if (task.review) card.append(node('p', '评审对象：' + task.review.target + ' ' + tasks.get(task.review.target).title),
-        node('p', task.acceptance));
+          ' · 尝试 ' + (runtime[task.id]?.attempts || 0) + ' 次', 'exec-meta-text'));
+      head.append(node('h3', task.id + ' · ' + task.title), stateLine);
+      card.append(head);
+      const candidates = rollbackTargets(task);
+      const nextTips = {
+        pending: '等待前置依赖全部确认交付后即可开始。',
+        ready: '下一步：点击「调用 ' + agent.name + '」自动生成，或手动点击「开始执行」。',
+        running: '下一步：填写说明后「确认交付」，或点击「请求补充」/「报告失败」。',
+        waiting: '下一步：填写澄清答复并点击「提交答复」恢复执行。',
+        failed: candidates.length ? '下一步：在下方选定缺陷源任务执行「回退并要求重验」，或「人工重试」。' : '下一步：核查失败说明后点击「人工重试」。',
+        done: '已确认交付：产物已传递并解锁下游依赖。',
+      };
+      if (nextTips[state]) {
+        const tip = node('p', nextTips[state], 'exec-next-tip');
+        tip.dataset.state = state;
+        card.append(tip);
+      }
+      const specs = node('div', '', 'task-specs');
+      const addSpecRow = (key, val) => {
+        const row = node('div', '', 'task-spec-row');
+        row.append(node('span', key, 'spec-key'), node('span', val, 'spec-val'));
+        specs.append(row);
+      };
+      addSpecRow('职责', agent.duty);
+      addSpecRow('预期交付物', task.output);
+      addSpecRow('前置', arrangement.dependencies[task.id].map(id => id + ' ' + stateLabels[taskState(id, runtime, arrangement)]).join('、') || '无');
+      if (task.test) addSpecRow('测试目标', task.test.targets.map(id => id + ' ' + tasks.get(id).title).join('、'));
+      if (task.review) {
+        addSpecRow('评审对象', task.review.target + ' ' + tasks.get(task.review.target).title);
+        addSpecRow('验收', task.acceptance);
+      }
+      card.append(specs);
+      if (task.test) card.append(...renderCases(task));
       if (output) {
-        card.append(node('p', (output.verdict ? verdictLabels[output.verdict] + ' · ' : '') +
+        const outputBox = node('div', '', 'exec-output');
+        outputBox.append(node('p', (output.verdict ? verdictLabels[output.verdict] + ' · ' : '') +
           'DeepSeek · ' + output.model + ' · ' + output.summary));
         for (const file of output.artifacts) {
           const detail = node('details', '', 'agent-artifact');
-          detail.append(node('summary', file.path), node('pre', file.content),
+          const pre = node('pre', file.content);
+          const preHScroll = createNeuHScroll(pre, file.path + ' 横向位置滑块');
+          detail.append(node('summary', file.path), pre, preHScroll.wrap,
             button('下载文件', () => download(file.path.split('/').at(-1), file.content, 'text/plain;charset=utf-8')));
-          card.append(detail);
+          detail.addEventListener('toggle', () => { if (detail.open) requestAnimationFrame(preHScroll.sync); });
+          outputBox.append(detail);
         }
+        card.append(outputBox);
       }
-      const list = node('ul', '', 'execution-history');
-      for (const item of runtime[task.id]?.notes || []) list.append(node('li',
-        new Date(item.time).toLocaleTimeString('zh-CN') + ' · ' + historyText(item)));
-      if (list.childElementCount) card.append(list);
       const allowed = {ready:['start'],running:['ask','fail','complete'],waiting:['answer'],failed:['retry']}[state] || [];
       if (allowed.length) {
         const label = node('label', task.role === '测试' ? '处理说明／实际测试结果' : '处理说明／交付物位置');
@@ -532,6 +635,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
           const invoke = button((output ? '重新调用 ' : '调用 ') + agent.name, async () => {
             if (!isBusy() && await ready() && getResult()?.plan === plan) await callNodeAgent(task);
           });
+          invoke.className = 'btn-ai';
           invoke.disabled = inFlight || pendingAgents.size >= arrangement.capacity;
           actions.append(invoke);
         }
@@ -548,20 +652,24 @@ export function createObservability({request, ready, adopt, getResult, getArrang
               payload_ref: 'runtime.' + task.id + '.notes[' + (runtime[task.id].notes.length - 1) + '].note',
               evidence_ref: 'runtime.' + task.id + '.notes'});
             noteDrafts.delete(task.id);
+            suppressExecStagger = true;
             refreshExecution();
           } catch (issue) { error.textContent = issue.message; }
           });
+          if (action === 'complete') control.className = 'btn-solid';
+          else if (action === 'fail') control.className = 'btn-danger-soft';
           control.disabled = inFlight || (action === 'complete' && Boolean(output?.verdict && output.verdict !== 'pass'));
           actions.append(control);
         }
-        const candidates = rollbackTargets(task);
         if (state === 'failed' && candidates.length) {
+          const rollbackBox = node('div', '', 'exec-rollback-box');
           const targetLabel = node('label', '回退目标');
           const targets = node('select');
           targets.append(new Option('选定确认有缺陷的实现任务', ''));
           for (const id of candidates) targets.append(new Option(id + ' · ' + tasks.get(id).title, id));
           if (candidates.length === 1) targets.value = candidates[0];
           targetLabel.append(targets);
+          enhanceSelect(targets);
           const impact = node('p', '', 'hint');
           const rollback = button('回退并要求重验', () => {
             try {
@@ -576,9 +684,11 @@ export function createObservability({request, ready, adopt, getResult, getArrang
                 payload_ref: 'runtime.' + task.id + '.notes[' + (runtime[task.id].notes.length - 1) + '].note',
                 evidence_ref: 'runtime.' + task.id + '.status'});
               noteDrafts.delete(task.id);
+              suppressExecStagger = true;
               refreshExecution();
             } catch (issue) { error.textContent = issue.message; }
           });
+          rollback.className = 'btn-warn-soft';
           const showImpact = () => {
             rollback.disabled = !targets.value;
             impact.textContent = targets.value ? '修复 ' + targets.value + ' 后重新验证 ' +
@@ -597,14 +707,20 @@ export function createObservability({request, ready, adopt, getResult, getArrang
           });
           targets.addEventListener('change', showImpact);
           showImpact();
-          card.append(targetLabel, impact);
+          rollbackBox.append(targetLabel, impact);
+          card.append(rollbackBox);
           actions.append(rollback);
         }
         if (agentErrors.has(task.id)) error.textContent = agentErrors.get(task.id);
         card.append(label, actions, error);
       }
+      const list = node('ul', '', 'execution-history');
+      for (const item of runtime[task.id]?.notes || []) list.append(node('li',
+        new Date(item.time).toLocaleTimeString('zh-CN') + ' · ' + historyText(item)));
+      if (list.childElementCount) card.append(list);
       container.append(card);
-    }
+    });
+    prevExecStates = new Map(taskEntries.map(e => [e.task.id, e.state]));
   }
 
   document.getElementById('export-task-md').addEventListener('click', () => {
@@ -646,7 +762,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     log, renderExecution,
     getRuntime() { return runtime; },
     reset() { events = []; this.resetRuntime(); discussion = undefined; discussionResult.replaceChildren(); renderActivity(); },
-    resetRuntime() { runtime = {}; pendingAgents.clear(); agentErrors.clear(); noteDrafts.clear(); },
+    resetRuntime() { runtime = {}; execFilter = 'all'; prevExecStates.clear(); suppressExecStagger = false; pendingAgents.clear(); agentErrors.clear(); noteDrafts.clear(); },
     snapshot() { return structuredClone({events, runtime, discussion}); },
     restore(value, plan, arrangement) {
       const restored = value || {events:[], runtime:{}};
