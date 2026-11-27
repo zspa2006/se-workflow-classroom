@@ -1564,6 +1564,26 @@
     }
     return transitive(id, (current) => successors.get(current) ?? []);
   }
+  function focusBreadcrumb(id, dependencies) {
+    const ancestors = transitiveUpstream(id, dependencies);
+    const depths = new Map(ancestors.map((item) => [item.id, item.depth]));
+    const path = [id];
+    let current = id;
+    while ((dependencies[current] ?? []).length) {
+      const parent = [...dependencies[current]].sort((a, b) => (depths.get(b) ?? -1) - (depths.get(a) ?? -1) || a.localeCompare(b))[0];
+      path.push(parent);
+      current = parent;
+    }
+    return path.reverse();
+  }
+  function groupByDepth(items) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const item of items) {
+      if (!groups.has(item.depth)) groups.set(item.depth, []);
+      groups.get(item.depth).push(item.id);
+    }
+    return [...groups.entries()].sort((a, b) => a[0] - b[0]);
+  }
 
   // app.mjs
   var byId = (id) => document.getElementById(id);
@@ -2552,18 +2572,17 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       root.type = "button";
       root.addEventListener("click", () => select(""));
       breadcrumb.append(root);
-      for (const item of [...upstream].reverse()) {
+      for (const item of focusBreadcrumb(id, arrangement.dependencies).slice(0, -1)) {
         const link = element("button", item.id, "task-link");
         link.type = "button";
         link.addEventListener("click", () => select(item.id));
+        link.addEventListener("click", () => buttons.get(item.id)?.scrollIntoView({ block: "nearest", inline: "center" }));
         breadcrumb.append(element("span", " / "), link);
       }
       breadcrumb.append(element("span", " / " + id));
       const chain = element("div", "", "graph-chain");
-      chain.append(
-        element("p", "\u4E0A\u6E38\u94FE\u8DEF\uFF1A" + ([id, ...upstream.map((item) => item.id)].join(" \u2190 ") || "\u65E0")),
-        element("p", "\u4E0B\u6E38\u94FE\u8DEF\uFF1A" + ([id, ...downstream.map((item) => item.id)].join(" \u2192 ") || "\u65E0"))
-      );
+      const levels = (items) => groupByDepth(items).map(([depth, ids]) => "\u7B2C " + depth + " \u5C42 " + ids.join("\u3001")).join(" \uFF0F ") || "\u65E0";
+      chain.append(element("p", "\u4E0A\u6E38\uFF1A" + levels(upstream)), element("p", "\u4E0B\u6E38\uFF1A" + levels(downstream)));
       card.append(chain);
       const openExecution = element("button", "\u6253\u5F00\u6B64\u8282\u70B9\u7684\u6267\u884C\u4E0E\u4EA4\u4E92", "task-link");
       openExecution.type = "button";

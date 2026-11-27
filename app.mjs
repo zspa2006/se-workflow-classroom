@@ -6,7 +6,7 @@ import { createObservability, recordEvent, mergeStructuredEvents, getStructuredE
 import { stateLabels, taskState, rollbackScope, rollbackTargets } from './interaction.mjs';
 import { agentForTask, planningAgents } from './agents.mjs';
 import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
-import { orderLayers, transitiveUpstream, transitiveDownstream } from './graph/layout.mjs';
+import { orderLayers, transitiveUpstream, transitiveDownstream, focusBreadcrumb, groupByDepth } from './graph/layout.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -989,16 +989,17 @@ function showGraph(tasksById, affectedIds) {
     root.type = 'button';
     root.addEventListener('click', () => select(''));
     breadcrumb.append(root);
-    for (const item of [...upstream].reverse()) {
+    for (const item of focusBreadcrumb(id, arrangement.dependencies).slice(0, -1)) {
       const link = element('button', item.id, 'task-link');
       link.type = 'button';
       link.addEventListener('click', () => select(item.id));
+      link.addEventListener('click', () => buttons.get(item.id)?.scrollIntoView({block: 'nearest', inline: 'center'}));
       breadcrumb.append(element('span', ' / '), link);
     }
     breadcrumb.append(element('span', ' / ' + id));
     const chain = element('div', '', 'graph-chain');
-    chain.append(element('p', '上游链路：' + ([id, ...upstream.map(item => item.id)].join(' ← ') || '无')),
-      element('p', '下游链路：' + ([id, ...downstream.map(item => item.id)].join(' → ') || '无')));
+    const levels = items => groupByDepth(items).map(([depth, ids]) => '第 ' + depth + ' 层 ' + ids.join('、')).join(' ／ ') || '无';
+    chain.append(element('p', '上游：' + levels(upstream)), element('p', '下游：' + levels(downstream)));
     card.append(chain);
     const openExecution = element('button', '打开此节点的执行与交互', 'task-link');
     openExecution.type = 'button';

@@ -61,3 +61,26 @@ export function transitiveDownstream(id, edges) {
   }
   return transitive(id, current => successors.get(current) ?? []);
 }
+
+export function focusBreadcrumb(id, dependencies) {
+  const ancestors = transitiveUpstream(id, dependencies);
+  const depths = new Map(ancestors.map(item => [item.id, item.depth]));
+  const path = [id];
+  let current = id;
+  while ((dependencies[current] ?? []).length) {
+    const parent = [...dependencies[current]].sort((a, b) =>
+      (depths.get(b) ?? -1) - (depths.get(a) ?? -1) || a.localeCompare(b))[0];
+    path.push(parent);
+    current = parent;
+  }
+  return path.reverse();
+}
+
+export function groupByDepth(items) {
+  const groups = new Map();
+  for (const item of items) {
+    if (!groups.has(item.depth)) groups.set(item.depth, []);
+    groups.get(item.depth).push(item.id);
+  }
+  return [...groups.entries()].sort((a, b) => a[0] - b[0]);
+}
