@@ -14,3 +14,7 @@ export function logicalToScreen(point, transform) {
 export function screenToLogical(point, transform) {
   return {x: (point.x - transform.x) / transform.scale, y: (point.y - transform.y) / transform.scale};
 }
+
+export function scaledSize(natural, scale) {
+  return {width: natural.width * scale, height: natural.height * scale};
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {orderLayers, transitiveUpstream, transitiveDownstream, focusBreadcrumb} from '../graph/layout.mjs';
-import {clampScale, fitScale, logicalToScreen, screenToLogical} from '../graph/viewport.mjs';
+import {clampScale, fitScale, logicalToScreen, screenToLogical, scaledSize} from '../graph/viewport.mjs';
 
 test('viewport math clamps, fits, and round trips coordinates', () => {
   assert.equal(clampScale(3), 2);
@@ -11,6 +11,8 @@ test('viewport math clamps, fits, and round trips coordinates', () => {
   const point = {x: 42, y: 26};
   assert.deepEqual(screenToLogical(logicalToScreen(point, transform), transform), point);
   assert.deepEqual(logicalToScreen({x: 100, y: 50}, {scale: 2, x: 0, y: 0}), {x: 200, y: 100});
+  assert.equal(scaledSize({width: 800, height: 400}, 1.25).width, 1000);
+  assert.equal(scaledSize({width: 800, height: 400}, 1.25 * 1.25).width, 800 * 1.5625);
 });
 
 test('orderLayers removes a two-layer crossing and is idempotent', () => {

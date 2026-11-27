@@ -1635,6 +1635,9 @@
     if (!content.width || !content.height || !viewport.width || !viewport.height) return 1;
     return clampScale(Math.min(viewport.width / content.width, viewport.height / content.height), min, max);
   }
+  function scaledSize(natural, scale) {
+    return { width: natural.width * scale, height: natural.height * scale };
+  }
 
   // app.mjs
   var byId = (id) => document.getElementById(id);
@@ -2493,9 +2496,10 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     const zoom = { scale: 1 };
     const applyZoom = (scale) => {
       zoom.scale = clampScale(scale);
+      const size = scaledSize(natural, zoom.scale);
       graph.style.transform = "scale(" + zoom.scale + ")";
-      stage.style.width = graph.clientWidth * zoom.scale + "px";
-      stage.style.height = graph.clientHeight * zoom.scale + "px";
+      stage.style.width = size.width + "px";
+      stage.style.height = size.height + "px";
       draw();
     };
     for (const [label, factor] of [["\u653E\u5927", 1.25], ["\u7F29\u5C0F", 0.8]]) {
@@ -2512,7 +2516,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     fit.type = "button";
     fit.setAttribute("aria-label", "\u9002\u5E94\u7A97\u53E3");
     fit.addEventListener("click", () => {
-      applyZoom(fitScale({ width: graph.scrollWidth, height: graph.scrollHeight }, { width: scroll.clientWidth, height: scroll.clientHeight }));
+      applyZoom(fitScale(natural, { width: scroll.clientWidth, height: scroll.clientHeight }));
       fit.focus();
     });
     viewportTools.append(fit);
@@ -2522,6 +2526,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     scroll.setAttribute("aria-label", vertical ? "\u6309\u6267\u884C\u6279\u6B21\u4ECE\u4E0A\u5230\u4E0B\u7684\u6D41\u7A0B\u56FE" : "\u53EF\u6A2A\u5411\u6EDA\u52A8\u7684\u4EFB\u52A1\u4F9D\u8D56\u56FE");
     const stage = element("div", "", "graph-stage");
     const graph = element("div", "", vertical ? "graph graph-inner graph-vertical" : "graph graph-inner");
+    const natural = { width: 0, height: 0 };
     graph.style.transformOrigin = "top left";
     const canvas = element("canvas");
     canvas.setAttribute("aria-hidden", "true");
@@ -2641,8 +2646,6 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       const returns = vertical && selected ? rollbackTargets(tasksById.get(selected)) : [];
       graph.style[vertical ? "paddingRight" : "paddingBottom"] = 26 + (rows.length + returns.length) * 11 + "px";
       const ratio = window.devicePixelRatio || 1;
-      stage.style.width = graph.clientWidth * zoom.scale + "px";
-      stage.style.height = graph.clientHeight * zoom.scale + "px";
       canvas.width = Math.ceil(stage.clientWidth * ratio);
       canvas.height = Math.ceil(stage.clientHeight * ratio);
       canvas.style.width = stage.clientWidth + "px";
@@ -2793,6 +2796,8 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       graph.append(column);
       columns.push(column);
     });
+    natural.width = graph.offsetWidth;
+    natural.height = graph.offsetHeight;
     graphArea.append(scroll, breadcrumb, detail);
     view.append(graphArea);
     reset.addEventListener("click", () => {
