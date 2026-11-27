@@ -7,6 +7,7 @@ import { stateLabels, taskState, rollbackScope, rollbackTargets } from './intera
 import { agentForTask, planningAgents } from './agents.mjs';
 import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
 import { orderLayers, transitiveUpstream, transitiveDownstream, focusBreadcrumb, groupByDepth } from './graph/layout.mjs';
+import { taskDepths, criticalChain } from './graph/batches.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -773,17 +774,21 @@ function listTasks(affectedIds) {
 }
 
 function showRounds(tasksById, affectedIds) {
-  view.append(element('p', '当前每批最多 ' + arrangement.capacity + ' 项。上一批全部完成后，下一批才开始。同批任务可并行。', 'hint'));
+  const depths = taskDepths(arrangement.dependencies);
+  const chain = criticalChain(arrangement.dependencies, depths);
+  const chainBatches = new Set(chain.map(id => arrangement.rounds.findIndex(batch => batch.includes(id))));
+  view.append(element('p', '当前每批最多 ' + arrangement.capacity + ' 项。依赖深度最长链覆盖 ' + chainBatches.size + ' 个批次。', 'hint'));
   arrangement.rounds.forEach((ids, index) => {
     const round = element('section', '', 'round');
     const tasks = element('div', '', 'task-list');
     const cards = ids.map(id => {
       const card = taskCard(tasksById.get(id), false, false, affectedIds);
+      if (chain.includes(id)) card.classList.add('critical-task');
       card.append(element('p', '前置任务：' + (arrangement.dependencies[id].join('、') || '无')));
       return card;
     });
     tasks.append(...cards);
-    round.append(element('h3', '第 ' + (index + 1) + ' 批 · ' + ids.length + ' 项'), tasks);
+    round.append(element('h3', '第 ' + (index + 1) + ' 批 · ' + ids.length + ' 项' + (chainBatches.has(index) ? ' · 关键路径' : '')), tasks);
     view.append(round);
   });
 }

@@ -182,7 +182,8 @@ summary{cursor:pointer;font-weight:700}
 #activity li{padding:7px 0;border-bottom:1px solid var(--line)}
 #activity strong{margin:0 10px}
 #activity span{display:block;white-space:pre-wrap}
-.round{border-top:1px solid var(--line);padding:12px 0}
+.round{border-top:1px solid var(--line);padding:12px 0}.round .task-list{display:flex;align-items:stretch;gap:9px}.round .task{flex:1;min-width:0}.critical-task{box-shadow:inset 4px 0 0 var(--green)}
 @media(max-width:740px){main{padding:17px 12px}.mast{padding:0 12px}.hero{display:block;padding:19px}.flow{margin-top:14px}.workspace{grid-template-columns:1fr}.notice{min-height:260px}}
 @media(max-width:420px){.task-list,.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.connection{max-width:47%}.tabs{gap:0;padding:0 8px}.task-list{grid-template-columns:1fr}}
+@media(max-width:420px){.round .task-list{display:grid;grid-template-columns:1fr}}
 @media(max-width:430px){.mast{gap:6px}.mast-actions{gap:5px}.mast-actions button{padding:6px;font-size:12px}.brand{gap:5px;font-size:14px}.mark{width:24px;height:24px;font-size:19px}.tabs{flex-wrap:wrap}.panel-head{flex-wrap:wrap}.exports{justify-content:start}}

@@ -1585,6 +1585,32 @@
     return [...groups.entries()].sort((a, b) => a[0] - b[0]);
   }
 
+  // graph/batches.mjs
+  function taskDepths(dependencies) {
+    const depths = /* @__PURE__ */ new Map();
+    const visiting = /* @__PURE__ */ new Set();
+    function depth(id) {
+      if (depths.has(id)) return depths.get(id);
+      if (visiting.has(id)) return 0;
+      visiting.add(id);
+      const value = Math.max(-1, ...(dependencies[id] ?? []).map((parent) => depth(parent))) + 1;
+      visiting.delete(id);
+      depths.set(id, value);
+      return value;
+    }
+    for (const id of Object.keys(dependencies)) depth(id);
+    return depths;
+  }
+  function criticalChain(dependencies, depths) {
+    let current = [...depths.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+    const chain = [];
+    while (current) {
+      chain.unshift(current);
+      current = (dependencies[current] ?? []).filter((parent) => depths.get(parent) === depths.get(chain[0]) - 1).sort((a, b) => a.localeCompare(b))[0];
+    }
+    return chain;
+  }
+
   // app.mjs
   var byId = (id) => document.getElementById(id);
   var directFile = location.protocol === "file:";
@@ -2359,17 +2385,21 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     filter(requirementFilter);
   }
   function showRounds(tasksById, affectedIds) {
-    view.append(element("p", "\u5F53\u524D\u6BCF\u6279\u6700\u591A " + arrangement.capacity + " \u9879\u3002\u4E0A\u4E00\u6279\u5168\u90E8\u5B8C\u6210\u540E\uFF0C\u4E0B\u4E00\u6279\u624D\u5F00\u59CB\u3002\u540C\u6279\u4EFB\u52A1\u53EF\u5E76\u884C\u3002", "hint"));
+    const depths = taskDepths(arrangement.dependencies);
+    const chain = criticalChain(arrangement.dependencies, depths);
+    const chainBatches = new Set(chain.map((id) => arrangement.rounds.findIndex((batch) => batch.includes(id))));
+    view.append(element("p", "\u5F53\u524D\u6BCF\u6279\u6700\u591A " + arrangement.capacity + " \u9879\u3002\u4F9D\u8D56\u6DF1\u5EA6\u6700\u957F\u94FE\u8986\u76D6 " + chainBatches.size + " \u4E2A\u6279\u6B21\u3002", "hint"));
     arrangement.rounds.forEach((ids, index) => {
       const round = element("section", "", "round");
       const tasks = element("div", "", "task-list");
       const cards = ids.map((id) => {
         const card = taskCard(tasksById.get(id), false, false, affectedIds);
+        if (chain.includes(id)) card.classList.add("critical-task");
         card.append(element("p", "\u524D\u7F6E\u4EFB\u52A1\uFF1A" + (arrangement.dependencies[id].join("\u3001") || "\u65E0")));
         return card;
       });
       tasks.append(...cards);
-      round.append(element("h3", "\u7B2C " + (index + 1) + " \u6279 \xB7 " + ids.length + " \u9879"), tasks);
+      round.append(element("h3", "\u7B2C " + (index + 1) + " \u6279 \xB7 " + ids.length + " \u9879" + (chainBatches.has(index) ? " \xB7 \u5173\u952E\u8DEF\u5F84" : "")), tasks);
       view.append(round);
     });
   }
