@@ -2,3 +2,20 @@ node_modules/
 dist/
 .env
 .env.*
+
+# OS & editor junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs, caches & scratch outputs
+*.log
+npm-debug.log*
+coverage/
+tmp/
+.playwright-mcp/
+

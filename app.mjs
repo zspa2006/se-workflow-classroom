@@ -45,11 +45,146 @@ let chainExpanded = false;
 let runningStage = '';
 let graphLayout = 'horizontal';
 let inputCollapsed = false;
+let floatDocked = false;
+let dockActiveInspector = null;
+const floatingEl = byId('floating-inspector');
+const floatingHead = byId('float-insp-heading');
+const floatingBody = byId('float-insp-body');
+const floatingDrag = byId('floating-insp-drag');
+const floatingClose = byId('float-insp-close');
 const steps = [
   ['idea', '产品想法'], ['requirements', '需求规格'], ['design', '设计规格'],
   ['tests', '测试方案'], ['schedule', '任务编排'], ['feedback', '设计回填'],
 ];
 const stepLabels = new Map(steps);
+
+function hideFloatingInspector() {
+  if (!floatingEl) return;
+  floatingEl.hidden = true;
+  floatingEl.classList.remove('is-dragging');
+}
+
+function clampFloatingInspector() {
+  if (!floatingEl || floatingEl.hidden) return;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const fw = floatingEl.offsetWidth || 540;
+  const fh = floatingEl.offsetHeight || 260;
+  const rect = floatingEl.getBoundingClientRect();
+  const nextLeft = Math.max(12, Math.min(vw - fw - 12, rect.left));
+  const nextTop = Math.max(62, Math.min(vh - fh - 12, rect.top));
+  floatingEl.style.left = Math.round(nextLeft) + 'px';
+  floatingEl.style.top = Math.round(nextTop) + 'px';
+}
+
+function positionFloatingNearNode(nodeBtn) {
+  if (!floatingEl || !nodeBtn) return;
+  floatingEl.hidden = false;
+  const nr = nodeBtn.getBoundingClientRect();
+  const fw = floatingEl.offsetWidth || 540;
+  const fh = floatingEl.offsetHeight || 260;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let left = nr.right + 14;
+  if (left + fw > vw - 14) left = Math.max(12, nr.left - fw - 14);
+  if (left + fw > vw - 14) left = Math.max(12, vw - fw - 14);
+  const top = Math.max(62, Math.min(vh - fh - 14, nr.top - 12));
+  floatingEl.style.left = Math.round(left) + 'px';
+  floatingEl.style.top = Math.round(top) + 'px';
+}
+
+function initFloatingInspectorControls() {
+  if (!floatingEl || !floatingDrag) return;
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let origL = 0;
+  let origT = 0;
+
+  floatingDrag.addEventListener('pointerdown', event => {
+    if (event.target.closest('button')) return;
+    dragging = true;
+    floatingEl.classList.add('is-dragging');
+    const rect = floatingEl.getBoundingClientRect();
+    origL = rect.left;
+    origT = rect.top;
+    startX = event.clientX;
+    startY = event.clientY;
+    floatingDrag.setPointerCapture(event.pointerId);
+  });
+  floatingDrag.addEventListener('pointermove', event => {
+    if (!dragging) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const fw = floatingEl.offsetWidth || 540;
+    const fh = floatingEl.offsetHeight || 260;
+    const nextL = Math.max(12, Math.min(vw - fw - 12, origL + (event.clientX - startX)));
+    const nextT = Math.max(62, Math.min(vh - fh - 12, origT + (event.clientY - startY)));
+    floatingEl.style.left = Math.round(nextL) + 'px';
+    floatingEl.style.top = Math.round(nextT) + 'px';
+  });
+  const endDrag = () => {
+    dragging = false;
+    floatingEl.classList.remove('is-dragging');
+  };
+  floatingDrag.addEventListener('pointerup', endDrag);
+  floatingDrag.addEventListener('pointercancel', endDrag);
+
+  floatingClose?.addEventListener('click', () => {
+    if (dockActiveInspector) dockActiveInspector();
+    else hideFloatingInspector();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !floatingEl || floatingEl.hidden) return;
+    if (document.querySelector('dialog[open]')) return;
+    if (dockActiveInspector) dockActiveInspector();
+    else hideFloatingInspector();
+  });
+}
+
+function renderRailOverview() {
+  const chip = byId('rail-chain-chip');
+  const slot = byId('rail-overview-slot');
+  if (!chip || !slot) return;
+  if (!result || !arrangement) {
+    chip.textContent = '等待运行';
+    slot.replaceChildren(element('p', '运行工作流或导入结果后，将在此展示最长依赖关键链与需求覆盖追溯。', 'inspector-tip'));
+    return;
+  }
+  const depths = taskDepths(arrangement.dependencies);
+  const chain = criticalChain(arrangement.dependencies, depths);
+  const chainBatches = new Set(chain.map(id => arrangement.rounds.findIndex(batch => batch.includes(id))));
+  const runtime = monitor.getRuntime();
+  chip.textContent = chainBatches.size + ' 批次最长链';
+
+  const nodes = [];
+  if (chain.length) {
+    const chainBar = element('div', '', 'rail-overview-chain');
+    chainBar.setAttribute('aria-label', '关键路径节点链');
+    chain.forEach((id, idx) => {
+      if (idx > 0) chainBar.append(element('span', '›', 'rail-chain-chev'));
+      const btn = element('button', id, 'rail-chain-btn');
+      btn.type = 'button';
+      if (runtime[id]?.status === 'failed') btn.classList.add('is-failed');
+      btn.title = '在依赖图中查看 ' + id;
+      btn.addEventListener('click', () => locateGraphTask(id));
+      chainBar.append(btn);
+    });
+    nodes.push(chainBar);
+  }
+
+  const reqList = element('div', '', 'rail-req-list');
+  for (const req of result.plan.requirements) {
+    const linked = result.plan.tasks.filter(t => t.requirements.includes(req.id)).map(t => t.id);
+    const box = element('div', '', 'rail-req-item');
+    const summary = req.text.length > 26 ? req.text.slice(0, 26) + '…' : req.text;
+    box.append(element('strong', req.id + ' · ' + summary),
+      document.createTextNode(' · 覆盖 ' + (linked.join('、') || '暂无')));
+    reqList.append(box);
+  }
+  nodes.push(reqList);
+  slot.replaceChildren(...nodes);
+}
 
 function renderRailActivity(events = []) {
   const list = byId('rail-activity-list');
@@ -72,16 +207,36 @@ function renderRailActivity(events = []) {
   if (tip) tip.hidden = false;
 }
 
-function updateRightRailContext(inspectingId = '', inspectorEl = null) {
+function updateRightRailContext(inspectingId = '', inspectorEl = null, { floating = false, title = '', onReopen = null } = {}) {
   const heading = byId('right-ctx-heading');
   const chip = byId('right-ctx-chip');
   const inspectorSlot = byId('rail-inspector-slot');
   const activitySlot = byId('rail-activity-slot');
   if (!heading || !chip || !inspectorSlot || !activitySlot) return;
-  if (inspectingId && inspectorEl && active === 'graph') {
+  if (inspectingId && active === 'graph' && floating) {
+    heading.textContent = '节点检视状态';
+    chip.textContent = '已悬浮展开';
+    const note = element('div', '', 'inspector-tip');
+    note.style.marginTop = '0';
+    note.append(
+      document.createTextNode('当前正在依赖图节点旁悬浮检视 '),
+      element('strong', title || inspectingId),
+      document.createTextNode('；可拖动悬浮窗，点击右上角 × 即可自动贴回此处显示。')
+    );
+    inspectorSlot.replaceChildren(note);
+    inspectorSlot.hidden = false;
+    activitySlot.hidden = true;
+  } else if (inspectingId && inspectorEl && active === 'graph') {
     heading.textContent = '节点检视 · ' + inspectingId;
-    chip.textContent = '图节点联动';
-    inspectorSlot.replaceChildren(inspectorEl);
+    chip.textContent = '已贴回右下';
+    const nodes = [inspectorEl];
+    if (onReopen) {
+      const reopenBtn = element('button', '在节点旁呼出宽幅悬浮窗 ↗', 'dock-popout-btn');
+      reopenBtn.type = 'button';
+      reopenBtn.addEventListener('click', onReopen);
+      nodes.push(reopenBtn);
+    }
+    inspectorSlot.replaceChildren(...nodes);
     inspectorSlot.hidden = false;
     activitySlot.hidden = true;
   } else {
@@ -110,12 +265,16 @@ function syncTabIndicator() {
   syncPillThumb(tabBar);
   syncPillThumb(wsNav);
 }
-window.addEventListener('resize', () => syncTabIndicator());
+window.addEventListener('resize', () => {
+  syncTabIndicator();
+  clampFloatingInspector();
+});
 
 function selectWorkspace(discussion, focus = false) {
   if (discussion) {
     stopGraphMotion?.();
     stopGraphMotion = undefined;
+    hideFloatingInspector();
   }
   byId('workspace').hidden = discussion;
   byId('discussion-panel').hidden = !discussion;
@@ -218,6 +377,9 @@ function statusMessage(title, body) {
   byId('provenance').textContent = '';
   byId('notice-title').textContent = title;
   byId('notice-body').textContent = body;
+  hideFloatingInspector();
+  dockActiveInspector = null;
+  renderRailOverview();
   updateRightRailContext();
   stopGraphMotion?.();
   stopGraphMotion = undefined;
@@ -504,6 +666,7 @@ function show(data) {
   arrangement = schedule(data.plan, Number(capacity.value));
   result = data;
   selected = '';
+  floatDocked = false;
   requirementFilter = '';
   chainExpanded = false;
   lastMetricValues = null;
@@ -696,10 +859,14 @@ function renderChain() {
 
 function locateGraphTask(id) {
   selected = id;
+  floatDocked = false;
   openResults('graph');
   const node = byId('node-' + id);
-  node.scrollIntoView({block: 'nearest', inline: 'center'});
-  node.focus({preventScroll: true});
+  if (node) {
+    node.scrollIntoView({block: 'nearest', inline: 'center'});
+    node.focus({preventScroll: true});
+    requestAnimationFrame(() => positionFloatingNearNode(node));
+  }
 }
 
 function metrics() {
@@ -726,12 +893,12 @@ function metrics() {
     stack.append(segment);
   }
   const compactCounts = [
-    counts.done ? '完成 ' + counts.done : '',
-    counts.waiting ? '等补 ' + counts.waiting : '',
-    counts.running ? '进行 ' + counts.running : '',
-    counts.ready ? '就绪 ' + counts.ready : '',
-    counts.failed ? '失败 ' + counts.failed : '',
-    counts.pending ? '待 ' + counts.pending : '',
+    counts.done ? '完成' + counts.done : '',
+    counts.waiting ? '等补' + counts.waiting : '',
+    counts.running ? '进行' + counts.running : '',
+    counts.ready ? '就绪' + counts.ready : '',
+    counts.failed ? '失败' + counts.failed : '',
+    counts.pending ? '待' + counts.pending : '',
   ].filter(Boolean).join(' · ') || '暂无';
   statusCard.append(stack, element('span', compactCounts, 'metric-detail'));
 
@@ -1467,16 +1634,19 @@ function showGraph(tasksById, affectedIds) {
     document.removeEventListener('visibilitychange', onVisibilityChange);
   };
 
-  function select(id) {
+  function select(id, {openFloat = !floatDocked} = {}) {
     selected = id;
     graphArea.classList.toggle('has-selection', Boolean(id));
     for (const [taskId, button] of buttons) button.setAttribute('aria-pressed', String(id === taskId));
     reset.hidden = !id;
     if (!id) {
+      floatDocked = false;
+      dockActiveInspector = null;
+      hideFloatingInspector();
       breadcrumb.replaceChildren();
       const hidden = arrangement.edges.length - overview.length;
       explanation.textContent = parallel + ' 批含并行任务。总览显示 ' + overview.length + ' 条连线。' +
-        (hidden ? '另有 ' + hidden + ' 条可通过中间任务追溯。' : '') + '点击任务小卡可在右栏检视详情。';
+        (hidden ? '另有 ' + hidden + ' 条可通过中间任务追溯。' : '') + '点击任务小卡可在旁悬浮检视详情。';
       detail.replaceChildren();
       updateRightRailContext();
       stopPulse();
@@ -1489,51 +1659,64 @@ function showGraph(tasksById, affectedIds) {
     const card = taskCard(task, true, false, affectedIds);
     const upstream = transitiveUpstream(id, arrangement.dependencies);
     const downstream = transitiveDownstream(id, arrangement.edges);
-    breadcrumb.replaceChildren();
-    const root = element('button', '总览', 'task-link');
-    root.type = 'button';
-    root.addEventListener('click', () => select(''));
-    breadcrumb.append(root);
-    for (const item of focusBreadcrumb(id, arrangement.dependencies).slice(0, -1)) {
-      const itemId = typeof item === 'string' ? item : item.id;
-      const link = element('button', itemId, 'task-link');
-      link.type = 'button';
-      link.addEventListener('click', () => select(itemId));
-      link.addEventListener('click', () => buttons.get(itemId)?.scrollIntoView({block: 'nearest', inline: 'center'}));
-      breadcrumb.append(element('span', ' / '), link);
-    }
-    breadcrumb.append(element('span', ' / ' + id));
-    const chain = element('div', '', 'graph-chain');
+
+    const buildBreadcrumb = () => {
+      const nav = element('nav', '', 'graph-breadcrumb');
+      nav.setAttribute('aria-label', '依赖图焦点路径');
+      const root = element('button', '总览', 'task-link');
+      root.type = 'button';
+      root.addEventListener('click', () => select(''));
+      nav.append(root);
+      for (const item of focusBreadcrumb(id, arrangement.dependencies).slice(0, -1)) {
+        const itemId = typeof item === 'string' ? item : item.id;
+        const link = element('button', itemId, 'task-link');
+        link.type = 'button';
+        link.addEventListener('click', () => {
+          select(itemId, {openFloat: !floatDocked});
+          buttons.get(itemId)?.scrollIntoView({block: 'nearest', inline: 'center'});
+        });
+        nav.append(element('span', ' / '), link);
+      }
+      nav.append(element('span', ' / ' + id));
+      return nav;
+    };
+
+    const chainEl = element('div', '', 'graph-chain');
     const levels = items => groupByDepth(items).map(([depth, ids]) => '第 ' + depth + ' 层 ' + ids.join('、')).join(' ／ ') || '无';
-    chain.append(element('p', '上游：' + levels(upstream)), element('p', '下游：' + levels(downstream)));
-    card.append(chain);
-    const openExecution = element('button', '打开此节点的执行与交互', 'task-link');
-    openExecution.type = 'button';
-    openExecution.addEventListener('click', () => {
-      openResults('execution');
-      const item = byId('execution-' + id);
-      item.scrollIntoView({block: 'start'});
-      item.focus({preventScroll:true});
-    });
-    card.append(openExecution);
+    chainEl.append(element('p', '上游：' + levels(upstream)), element('p', '下游：' + levels(downstream)));
+
+    const buildOpenExecution = (className, text) => {
+      const btn = element('button', text, className);
+      btn.type = 'button';
+      btn.addEventListener('click', () => {
+        openResults('execution');
+        const item = byId('execution-' + id);
+        item.scrollIntoView({block: 'start'});
+        item.focus({preventScroll: true});
+      });
+      return btn;
+    };
+
+    let rollbackEl = null;
     const targets = rollbackTargets(task);
     if (targets.length) {
       if (vertical) explanation.textContent += ' 橙色虚线表示失败时可回退的编码。';
-      const info = element('div', '', 'graph-rollback');
-      info.append(element('h3', '失败回退', 'dependency-heading'));
+      rollbackEl = element('div', '', 'graph-rollback');
+      rollbackEl.append(element('h3', '失败回退', 'dependency-heading'));
       for (const target of targets) {
         const change = rollbackScope(target, arrangement);
-        info.append(element('p', target + ' · ' + tasksById.get(target).title + ' · 影响 ' + change.length + ' 项后续任务'));
+        rollbackEl.append(element('p', target + ' · ' + tasksById.get(target).title + ' · 影响 ' + change.length + ' 项后续任务'));
       }
-      card.append(info);
     }
+
+    const relationNodes = [];
     for (const [caption, here, other] of [
       ['前置任务', 'to', 'from'], ['后续任务', 'from', 'to'],
     ]) {
-      card.append(element('h3', caption, 'dependency-heading'));
+      relationNodes.push(element('h3', caption, 'dependency-heading'));
       const edges = arrangement.edges.filter(edge => edge[here] === id);
       if (!edges.length) {
-        card.append(element('p', '无'));
+        relationNodes.push(element('p', '无'));
         continue;
       }
       const relations = element('ul', '', 'dependency-list');
@@ -1543,18 +1726,59 @@ function showGraph(tasksById, affectedIds) {
         button.type = 'button';
         button.addEventListener('click', () => {
           const node = buttons.get(neighbor.id);
-          select(neighbor.id);
-          node.scrollIntoView({block: 'nearest', inline: 'center'});
-          node.focus({preventScroll: true});
+          select(neighbor.id, {openFloat: !floatDocked});
+          node?.scrollIntoView({block: 'nearest', inline: 'center'});
+          node?.focus({preventScroll: true});
         });
         const item = element('li');
         item.append(button, element('span', edgeReason(edge, tasksById.get(edge.to))));
         relations.append(item);
       }
-      card.append(relations);
+      relationNodes.push(relations);
     }
-    detail.replaceChildren(card);
-    updateRightRailContext(id, inspector);
+
+    if (openFloat && floatingEl && floatingHead && floatingBody) {
+      floatDocked = false;
+      const cols = element('div', '', 'floating-insp-cols');
+      const leftCol = element('div', '', 'floating-col');
+      const rightCol = element('div', '', 'floating-col');
+      leftCol.append(card);
+      rightCol.append(
+        chainEl,
+        ...(rollbackEl ? [rollbackEl] : []),
+        ...relationNodes,
+        buildOpenExecution('floating-exec-btn', '打开此节点的执行与交互 →'),
+      );
+      cols.append(leftCol, rightCol);
+      floatingHead.textContent = '节点检视 · ' + id;
+      floatingBody.replaceChildren(buildBreadcrumb(), cols);
+      const targetBtn = buttons.get(id);
+      positionFloatingNearNode(targetBtn);
+      requestAnimationFrame(() => {
+        if (!floatingEl.hidden && selected === id) positionFloatingNearNode(targetBtn);
+      });
+      dockActiveInspector = () => {
+        floatDocked = true;
+        select(id, {openFloat: false});
+      };
+      updateRightRailContext(id, null, {floating: true, title: id + ' · ' + task.title});
+    } else {
+      floatDocked = true;
+      hideFloatingInspector();
+      dockActiveInspector = null;
+      breadcrumb.replaceChildren(...buildBreadcrumb().childNodes);
+      card.append(chainEl, buildOpenExecution('task-link', '打开此节点的执行与交互'));
+      if (rollbackEl) card.append(rollbackEl);
+      card.append(...relationNodes);
+      detail.replaceChildren(card);
+      updateRightRailContext(id, inspector, {
+        floating: false,
+        onReopen: () => {
+          floatDocked = false;
+          select(id, {openFloat: true});
+        },
+      });
+    }
     pulseOrigin = performance.now();
     draw(reducedMotion() ? null : 0);
     startPulse();
@@ -1570,7 +1794,17 @@ function showGraph(tasksById, affectedIds) {
       button.id = 'node-' + id;
       button.type = 'button';
       button.setAttribute('aria-pressed', 'false');
-      button.addEventListener('click', () => select(selected === id ? '' : id));
+      button.addEventListener('click', () => {
+        if (selected === id && floatDocked) {
+          floatDocked = false;
+          select(id, {openFloat: true});
+        } else if (selected === id) {
+          select('');
+        } else {
+          floatDocked = false;
+          select(id, {openFloat: true});
+        }
+      });
       buttons.set(id, button);
       column.append(button);
     }
@@ -1605,6 +1839,8 @@ function showGraph(tasksById, affectedIds) {
 function render() {
   stopGraphMotion?.();
   stopGraphMotion = undefined;
+  hideFloatingInspector();
+  dockActiveInspector = null;
   for (const cleanup of viewCleanups) cleanup();
   viewCleanups = [];
   observer?.disconnect();
@@ -1612,6 +1848,7 @@ function render() {
   syncTabIndicator();
   view.replaceChildren();
   updateRightRailContext();
+  renderRailOverview();
   metrics();
   const tasks = new Map(result.plan.tasks.map(task => [task.id, task]));
   const affectedIds = rollbackAffectedIds(result.plan.tasks, arrangement, monitor.getRuntime(), rollbackTargets);
@@ -1715,6 +1952,7 @@ byId('report').addEventListener('click', () => {
 byId('startup').hidden = true;
 for (const id of ['workspace', 'workspace-nav', 'mast-actions', 'flow', 'app-foot']) byId(id).hidden = false;
 byId('legend-slot')?.replaceChildren(statusLegend(stateLabels));
+initFloatingInspectorControls();
 renderRailActivity([]);
 syncTabIndicator();
 changeSpec();

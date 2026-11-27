@@ -244,6 +244,7 @@
         </div>
 
         <div id="results" hidden>
+          <div class="metrics" id="metrics" hidden></div>
           <div class="tabs-wrap">
             <div class="tabs pill-tabs-track" aria-label="输出视图">
               <span class="pill-thumb" aria-hidden="true"></span>
@@ -257,8 +258,8 @@
         </div>
       </section>
 
-      <!-- 圣杯右栏：下沉对齐主区，图例 → KPI(2×2) → 动态节点检视/运行摘要 -->
-      <aside class="rail-right" id="context-rail" aria-label="状态图例、统计指标与节点检视">
+      <!-- 圣杯右栏：顶部齐平左/中栏，图例 → 关键路径与需求速览 → 运行摘要/贴回节点检视 -->
+      <aside class="rail-right" id="context-rail" aria-label="状态图例、关键路径与节点检视">
         <div class="rail-box" id="rail-legend-card">
           <div class="rail-box-title">
             <span>六态非颜色编码图例</span>
@@ -267,9 +268,17 @@
           <div id="legend-slot"></div>
         </div>
 
-        <div class="metrics" id="metrics" hidden></div>
+        <div class="rail-box" id="rail-overview-card">
+          <div class="rail-box-title">
+            <span>关键路径与需求速览</span>
+            <span class="provenance-chip" id="rail-chain-chip">等待运行</span>
+          </div>
+          <div id="rail-overview-slot">
+            <p class="inspector-tip">运行工作流或导入结果后，将在此展示最长依赖关键链与需求覆盖追溯。</p>
+          </div>
+        </div>
 
-        <div class="rail-box" id="right-context-card">
+        <div class="rail-box rail-context-card" id="right-context-card">
           <div class="rail-box-title">
             <span id="right-ctx-heading">最近运行与交互摘要</span>
             <span class="provenance-chip" id="right-ctx-chip">实时同步</span>
@@ -278,7 +287,7 @@
             <div id="rail-inspector-slot" hidden></div>
             <div id="rail-activity-slot">
               <ul class="activity-mini" id="rail-activity-list"></ul>
-              <p class="inspector-tip" id="rail-activity-tip">运行工作流或登记立场后，近期记录将同步至此；在「依赖图」中点击任意节点可在此检视上下游与回退影响。</p>
+              <p class="inspector-tip" id="rail-activity-tip">运行工作流或登记立场后，近期记录将同步至此；在「依赖图」中点击节点将在旁弹出可拖动悬浮窗。</p>
             </div>
           </div>
         </div>
@@ -338,6 +347,18 @@
       <pre id="code-pre"><code id="code-content"></code></pre>
     </div>
   </dialog>
+
+  <aside class="floating-inspector" id="floating-inspector" role="dialog" aria-modal="false" aria-label="节点详情悬浮窗" hidden>
+    <div class="floating-insp-head" id="floating-insp-drag">
+      <div class="floating-insp-title">
+        <span class="drag-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <span id="float-insp-heading">节点检视</span>
+        <span class="provenance-chip">可拖动</span>
+      </div>
+      <button type="button" class="floating-close" id="float-insp-close" title="关闭并贴回右下原位" aria-label="关闭悬浮窗并贴回右下">×</button>
+    </div>
+    <div class="floating-insp-body" id="float-insp-body"></div>
+  </aside>
 
   <script src="./app.browser.js"></script>
 </body>
