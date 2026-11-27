@@ -114,8 +114,8 @@ summary{cursor:pointer;font-weight:700}
 .graph-toolbar p{margin:0}
 .graph-toolbar button{flex:none;font-size:12px}
 .graph-viewport-tools{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.graph-viewport-tools button{font-size:12px}
-.graph{position:relative;isolation:isolate;display:flex;width:max-content;min-width:100%;gap:72px;padding:12px 14px 16px}
-.graph canvas{position:absolute;inset:0;z-index:1;pointer-events:none}
+.graph-stage{position:relative;width:max-content;min-width:100%}.graph-inner{position:relative;z-index:2;transform-origin:top left}.graph-stage canvas{position:absolute;inset:0;z-index:1;pointer-events:none}
+.graph{isolation:isolate;display:flex;width:max-content;min-width:100%;gap:72px;padding:12px 14px 16px}
 .column{position:relative;width:157px;display:flex;flex-direction:column;gap:14px}
 .column h3{font-size:13px;color:var(--muted);margin:2px 0 0}
 .column .task{text-align:left;width:100%}

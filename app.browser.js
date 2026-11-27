@@ -1631,6 +1631,10 @@
   function clampScale(scale, min = 0.4, max = 2) {
     return Math.min(max, Math.max(min, scale));
   }
+  function fitScale(content, viewport, min = 0.4, max = 2) {
+    if (!content.width || !content.height || !viewport.width || !viewport.height) return 1;
+    return clampScale(Math.min(viewport.width / content.width, viewport.height / content.height), min, max);
+  }
 
   // app.mjs
   var byId = (id) => document.getElementById(id);
@@ -2490,6 +2494,8 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     const applyZoom = (scale) => {
       zoom.scale = clampScale(scale);
       graph.style.transform = "scale(" + zoom.scale + ")";
+      stage.style.width = graph.clientWidth * zoom.scale + "px";
+      stage.style.height = graph.clientHeight * zoom.scale + "px";
       draw();
     };
     for (const [label, factor] of [["\u653E\u5927", 1.25], ["\u7F29\u5C0F", 0.8]]) {
@@ -2506,7 +2512,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     fit.type = "button";
     fit.setAttribute("aria-label", "\u9002\u5E94\u7A97\u53E3");
     fit.addEventListener("click", () => {
-      applyZoom(1);
+      applyZoom(fitScale({ width: graph.scrollWidth, height: graph.scrollHeight }, { width: scroll.clientWidth, height: scroll.clientHeight }));
       fit.focus();
     });
     viewportTools.append(fit);
@@ -2514,12 +2520,13 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     const scroll = element("div", "", "graph-scroll");
     scroll.tabIndex = 0;
     scroll.setAttribute("aria-label", vertical ? "\u6309\u6267\u884C\u6279\u6B21\u4ECE\u4E0A\u5230\u4E0B\u7684\u6D41\u7A0B\u56FE" : "\u53EF\u6A2A\u5411\u6EDA\u52A8\u7684\u4EFB\u52A1\u4F9D\u8D56\u56FE");
-    const graph = element("div", "", vertical ? "graph graph-vertical" : "graph");
+    const stage = element("div", "", "graph-stage");
+    const graph = element("div", "", vertical ? "graph graph-inner graph-vertical" : "graph graph-inner");
     graph.style.transformOrigin = "top left";
     const canvas = element("canvas");
     canvas.setAttribute("aria-hidden", "true");
-    graph.append(canvas);
-    scroll.append(graph);
+    stage.append(graph, canvas);
+    scroll.append(stage);
     scroll.addEventListener("wheel", (event) => {
       if (!event.ctrlKey) return;
       event.preventDefault();
@@ -2530,7 +2537,10 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     let lastX = 0;
     let lastY = 0;
     scroll.addEventListener("keydown", (event) => {
-      if (event.code === "Space") spaceHeld = true;
+      if (event.code === "Space" && !event.target.matches("button, input, select, textarea, a")) {
+        spaceHeld = true;
+        event.preventDefault();
+      }
     });
     scroll.addEventListener("keyup", (event) => {
       if (event.code === "Space") spaceHeld = false;
@@ -2551,13 +2561,22 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       lastY = event.clientY;
       event.preventDefault();
     });
+    let dragged = false;
     scroll.addEventListener("pointerup", (event) => {
       if (dragging) {
         dragging = false;
+        dragged = true;
         scroll.releasePointerCapture(event.pointerId);
         event.preventDefault();
       }
     });
+    scroll.addEventListener("click", (event) => {
+      if (dragged) {
+        dragged = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
     const breadcrumb = element("nav", "", "graph-breadcrumb");
     breadcrumb.setAttribute("aria-label", "\u4F9D\u8D56\u56FE\u7126\u70B9\u8DEF\u5F84");
     const detail = element("div", "", "graph-detail");
@@ -2622,10 +2641,12 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       const returns = vertical && selected ? rollbackTargets(tasksById.get(selected)) : [];
       graph.style[vertical ? "paddingRight" : "paddingBottom"] = 26 + (rows.length + returns.length) * 11 + "px";
       const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.ceil(graph.clientWidth * ratio);
-      canvas.height = Math.ceil(graph.clientHeight * ratio);
-      canvas.style.width = graph.clientWidth + "px";
-      canvas.style.height = graph.clientHeight + "px";
+      stage.style.width = graph.clientWidth * zoom.scale + "px";
+      stage.style.height = graph.clientHeight * zoom.scale + "px";
+      canvas.width = Math.ceil(stage.clientWidth * ratio);
+      canvas.height = Math.ceil(stage.clientHeight * ratio);
+      canvas.style.width = stage.clientWidth + "px";
+      canvas.style.height = stage.clientHeight + "px";
       const context = canvas.getContext("2d");
       context.scale(ratio, ratio);
       context.lineJoin = "round";

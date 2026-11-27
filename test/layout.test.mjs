@@ -10,6 +10,7 @@ test('viewport math clamps, fits, and round trips coordinates', () => {
   const transform = {scale: 1.5, x: 18, y: -7};
   const point = {x: 42, y: 26};
   assert.deepEqual(screenToLogical(logicalToScreen(point, transform), transform), point);
+  assert.deepEqual(logicalToScreen({x: 100, y: 50}, {scale: 2, x: 0, y: 0}), {x: 200, y: 100});
 });
 
 test('orderLayers removes a two-layer crossing and is idempotent', () => {

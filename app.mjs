@@ -8,7 +8,7 @@ import { agentForTask, planningAgents } from './agents.mjs';
 import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
 import { orderLayers, transitiveUpstream, transitiveDownstream, focusBreadcrumb, groupByDepth } from './graph/layout.mjs';
 import { taskDepths, criticalChain, rollbackCausality } from './graph/batches.mjs';
-import { clampScale } from './graph/viewport.mjs';
+import { clampScale, fitScale } from './graph/viewport.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -859,7 +859,7 @@ function showGraph(tasksById, affectedIds) {
   view.append(toolbar);
   const viewportTools = element('div', '', 'graph-viewport-tools');
   const zoom = {scale: 1};
-  const applyZoom = scale => { zoom.scale = clampScale(scale); graph.style.transform = 'scale(' + zoom.scale + ')'; draw(); };
+  const applyZoom = scale => { zoom.scale = clampScale(scale); graph.style.transform = 'scale(' + zoom.scale + ')'; stage.style.width = graph.clientWidth * zoom.scale + 'px'; stage.style.height = graph.clientHeight * zoom.scale + 'px'; draw(); };
   for (const [label, factor] of [['放大', 1.25], ['缩小', 0.8]]) {
     const control = element('button', label);
     control.type = 'button';
@@ -870,18 +870,19 @@ function showGraph(tasksById, affectedIds) {
   const fit = element('button', '适应窗口');
   fit.type = 'button';
   fit.setAttribute('aria-label', '适应窗口');
-  fit.addEventListener('click', () => { applyZoom(1); fit.focus(); });
+  fit.addEventListener('click', () => { applyZoom(fitScale({width: graph.scrollWidth, height: graph.scrollHeight}, {width: scroll.clientWidth, height: scroll.clientHeight})); fit.focus(); });
   viewportTools.append(fit);
   view.append(viewportTools);
   const scroll = element('div', '', 'graph-scroll');
   scroll.tabIndex = 0;
   scroll.setAttribute('aria-label', vertical ? '按执行批次从上到下的流程图' : '可横向滚动的任务依赖图');
-  const graph = element('div', '', vertical ? 'graph graph-vertical' : 'graph');
+  const stage = element('div', '', 'graph-stage');
+  const graph = element('div', '', vertical ? 'graph graph-inner graph-vertical' : 'graph graph-inner');
   graph.style.transformOrigin = 'top left';
   const canvas = element('canvas');
   canvas.setAttribute('aria-hidden', 'true');
-  graph.append(canvas);
-  scroll.append(graph);
+  stage.append(graph, canvas);
+  scroll.append(stage);
   scroll.addEventListener('wheel', event => {
     if (!event.ctrlKey) return;
     event.preventDefault();
@@ -891,7 +892,7 @@ function showGraph(tasksById, affectedIds) {
   let spaceHeld = false;
   let lastX = 0;
   let lastY = 0;
-  scroll.addEventListener('keydown', event => { if (event.code === 'Space') spaceHeld = true; });
+  scroll.addEventListener('keydown', event => { if (event.code === 'Space' && !event.target.matches('button, input, select, textarea, a')) { spaceHeld = true; event.preventDefault(); } });
   scroll.addEventListener('keyup', event => { if (event.code === 'Space') spaceHeld = false; });
   scroll.addEventListener('pointerdown', event => {
     if (event.button !== 1 && !spaceHeld) return;
@@ -901,7 +902,9 @@ function showGraph(tasksById, affectedIds) {
     if (!dragging) return;
     scroll.scrollLeft -= event.clientX - lastX; scroll.scrollTop -= event.clientY - lastY; lastX = event.clientX; lastY = event.clientY; event.preventDefault();
   });
-  scroll.addEventListener('pointerup', event => { if (dragging) { dragging = false; scroll.releasePointerCapture(event.pointerId); event.preventDefault(); } });
+  let dragged = false;
+  scroll.addEventListener('pointerup', event => { if (dragging) { dragging = false; dragged = true; scroll.releasePointerCapture(event.pointerId); event.preventDefault(); } });
+  scroll.addEventListener('click', event => { if (dragged) { dragged = false; event.preventDefault(); event.stopPropagation(); } }, true);
   const breadcrumb = element('nav', '', 'graph-breadcrumb');
   breadcrumb.setAttribute('aria-label', '依赖图焦点路径');
   const detail = element('div', '', 'graph-detail');
@@ -970,10 +973,12 @@ function showGraph(tasksById, affectedIds) {
     graph.style[vertical ? 'paddingRight' : 'paddingBottom'] = 26 + (rows.length + returns.length) * 11 + 'px';
 
     const ratio = window.devicePixelRatio || 1;
-    canvas.width = Math.ceil(graph.clientWidth * ratio);
-    canvas.height = Math.ceil(graph.clientHeight * ratio);
-    canvas.style.width = graph.clientWidth + 'px';
-    canvas.style.height = graph.clientHeight + 'px';
+    stage.style.width = graph.clientWidth * zoom.scale + 'px';
+    stage.style.height = graph.clientHeight * zoom.scale + 'px';
+    canvas.width = Math.ceil(stage.clientWidth * ratio);
+    canvas.height = Math.ceil(stage.clientHeight * ratio);
+    canvas.style.width = stage.clientWidth + 'px';
+    canvas.style.height = stage.clientHeight + 'px';
     const context = canvas.getContext('2d');
     context.scale(ratio, ratio);
     context.lineJoin = 'round';
