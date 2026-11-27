@@ -6,7 +6,7 @@ import { createObservability, recordEvent, mergeStructuredEvents, getStructuredE
 import { stateLabels, taskState, rollbackScope, rollbackTargets } from './interaction.mjs';
 import { agentForTask, planningAgents } from './agents.mjs';
 import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
-import { orderLayers } from './graph/layout.mjs';
+import { orderLayers, transitiveUpstream, transitiveDownstream } from './graph/layout.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -854,6 +854,8 @@ function showGraph(tasksById, affectedIds) {
   canvas.setAttribute('aria-hidden', 'true');
   graph.append(canvas);
   scroll.append(graph);
+  const breadcrumb = element('nav', '', 'graph-breadcrumb');
+  breadcrumb.setAttribute('aria-label', '依赖图焦点路径');
   const detail = element('div', '', 'graph-detail');
   const buttons = new Map();
   const columns = [];
@@ -968,6 +970,7 @@ function showGraph(tasksById, affectedIds) {
     for (const [taskId, button] of buttons) button.setAttribute('aria-pressed', String(id === taskId));
     reset.hidden = !id;
     if (!id) {
+      breadcrumb.replaceChildren();
       const hidden = arrangement.edges.length - overview.length;
       explanation.textContent = parallel + ' 批含并行任务。总览显示 ' + overview.length + ' 条连线。' +
         (hidden ? '另有 ' + hidden + ' 条可通过中间任务追溯。' : '') + '点击任务可查看它的全部直接依赖。';
@@ -979,6 +982,24 @@ function showGraph(tasksById, affectedIds) {
     explanation.textContent = id + ' 的 ' + count + ' 条连线 · 蓝色为前置依赖，绿色指向后续任务。';
     const task = tasksById.get(id);
     const card = taskCard(task, true, false, affectedIds);
+    const upstream = transitiveUpstream(id, arrangement.dependencies);
+    const downstream = transitiveDownstream(id, arrangement.edges);
+    breadcrumb.replaceChildren();
+    const root = element('button', '总览', 'task-link');
+    root.type = 'button';
+    root.addEventListener('click', () => select(''));
+    breadcrumb.append(root);
+    for (const item of [...upstream].reverse()) {
+      const link = element('button', item.id, 'task-link');
+      link.type = 'button';
+      link.addEventListener('click', () => select(item.id));
+      breadcrumb.append(element('span', ' / '), link);
+    }
+    breadcrumb.append(element('span', ' / ' + id));
+    const chain = element('div', '', 'graph-chain');
+    chain.append(element('p', '上游链路：' + ([id, ...upstream.map(item => item.id)].join(' ← ') || '无')),
+      element('p', '下游链路：' + ([id, ...downstream.map(item => item.id)].join(' → ') || '无')));
+    card.append(chain);
     const openExecution = element('button', '打开此节点的执行与交互', 'task-link');
     openExecution.type = 'button';
     openExecution.addEventListener('click', () => {
@@ -1046,7 +1067,7 @@ function showGraph(tasksById, affectedIds) {
     graph.append(column);
     columns.push(column);
   });
-  graphArea.append(scroll, detail);
+  graphArea.append(scroll, breadcrumb, detail);
   view.append(graphArea);
   reset.addEventListener('click', () => {
     const node = buttons.get(selected);

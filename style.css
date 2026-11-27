@@ -121,6 +121,7 @@ summary{cursor:pointer;font-weight:700}
 .column h3,.column .task{position:relative;z-index:2}
 .column .task[aria-pressed=true]{border-color:var(--green);background:var(--soft)}
 .graph-detail{margin-top:9px}
+.graph-breadcrumb{display:flex;align-items:center;gap:2px;flex-wrap:wrap;margin-top:9px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px}.graph-breadcrumb:empty{display:none}.graph-chain{margin:10px 0;padding:7px 9px;border-left:3px solid var(--green);background:var(--soft);font-size:12px}.graph-chain p{margin:3px 0}
 .graph-rollback{margin-top:10px;padding:1px 9px 7px;border:1px solid #e1c19d;border-radius:8px;background:#fff7ed}
 .graph-rollback h3{margin-top:5px;color:#814817}
 .graph-vertical{flex-direction:column;align-items:stretch;gap:64px;padding-bottom:46px}

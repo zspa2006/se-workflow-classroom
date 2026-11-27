@@ -1535,6 +1535,35 @@
     sweep(layers, edges, false);
     return layers;
   }
+  function transitive(id, neighbors) {
+    const result2 = [];
+    const seen = /* @__PURE__ */ new Set([id]);
+    let frontier = [id];
+    let depth = 0;
+    while (frontier.length) {
+      const next = [];
+      for (const current of frontier) for (const neighbor of neighbors(current)) {
+        if (seen.has(neighbor)) continue;
+        seen.add(neighbor);
+        next.push(neighbor);
+        result2.push({ id: neighbor, depth: depth + 1 });
+      }
+      frontier = next;
+      depth++;
+    }
+    return result2;
+  }
+  function transitiveUpstream(id, dependencies) {
+    return transitive(id, (current) => dependencies[current] ?? []);
+  }
+  function transitiveDownstream(id, edges) {
+    const successors = /* @__PURE__ */ new Map();
+    for (const edge of edges) {
+      if (!successors.has(edge.from)) successors.set(edge.from, []);
+      successors.get(edge.from).push(edge.to);
+    }
+    return transitive(id, (current) => successors.get(current) ?? []);
+  }
 
   // app.mjs
   var byId = (id) => document.getElementById(id);
@@ -2388,6 +2417,8 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     canvas.setAttribute("aria-hidden", "true");
     graph.append(canvas);
     scroll.append(graph);
+    const breadcrumb = element("nav", "", "graph-breadcrumb");
+    breadcrumb.setAttribute("aria-label", "\u4F9D\u8D56\u56FE\u7126\u70B9\u8DEF\u5F84");
     const detail = element("div", "", "graph-detail");
     const buttons = /* @__PURE__ */ new Map();
     const columns = [];
@@ -2503,6 +2534,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       for (const [taskId, button2] of buttons) button2.setAttribute("aria-pressed", String(id === taskId));
       reset.hidden = !id;
       if (!id) {
+        breadcrumb.replaceChildren();
         const hidden = arrangement.edges.length - overview.length;
         explanation.textContent = parallel + " \u6279\u542B\u5E76\u884C\u4EFB\u52A1\u3002\u603B\u89C8\u663E\u793A " + overview.length + " \u6761\u8FDE\u7EBF\u3002" + (hidden ? "\u53E6\u6709 " + hidden + " \u6761\u53EF\u901A\u8FC7\u4E2D\u95F4\u4EFB\u52A1\u8FFD\u6EAF\u3002" : "") + "\u70B9\u51FB\u4EFB\u52A1\u53EF\u67E5\u770B\u5B83\u7684\u5168\u90E8\u76F4\u63A5\u4F9D\u8D56\u3002";
         detail.replaceChildren();
@@ -2513,6 +2545,26 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       explanation.textContent = id + " \u7684 " + count + " \u6761\u8FDE\u7EBF \xB7 \u84DD\u8272\u4E3A\u524D\u7F6E\u4F9D\u8D56\uFF0C\u7EFF\u8272\u6307\u5411\u540E\u7EED\u4EFB\u52A1\u3002";
       const task = tasksById.get(id);
       const card = taskCard(task, true, false, affectedIds);
+      const upstream = transitiveUpstream(id, arrangement.dependencies);
+      const downstream = transitiveDownstream(id, arrangement.edges);
+      breadcrumb.replaceChildren();
+      const root = element("button", "\u603B\u89C8", "task-link");
+      root.type = "button";
+      root.addEventListener("click", () => select(""));
+      breadcrumb.append(root);
+      for (const item of [...upstream].reverse()) {
+        const link = element("button", item.id, "task-link");
+        link.type = "button";
+        link.addEventListener("click", () => select(item.id));
+        breadcrumb.append(element("span", " / "), link);
+      }
+      breadcrumb.append(element("span", " / " + id));
+      const chain = element("div", "", "graph-chain");
+      chain.append(
+        element("p", "\u4E0A\u6E38\u94FE\u8DEF\uFF1A" + ([id, ...upstream.map((item) => item.id)].join(" \u2190 ") || "\u65E0")),
+        element("p", "\u4E0B\u6E38\u94FE\u8DEF\uFF1A" + ([id, ...downstream.map((item) => item.id)].join(" \u2192 ") || "\u65E0"))
+      );
+      card.append(chain);
       const openExecution = element("button", "\u6253\u5F00\u6B64\u8282\u70B9\u7684\u6267\u884C\u4E0E\u4EA4\u4E92", "task-link");
       openExecution.type = "button";
       openExecution.addEventListener("click", () => {
@@ -2580,7 +2632,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       graph.append(column);
       columns.push(column);
     });
-    graphArea.append(scroll, detail);
+    graphArea.append(scroll, breadcrumb, detail);
     view.append(graphArea);
     reset.addEventListener("click", () => {
       const node2 = buttons.get(selected);
