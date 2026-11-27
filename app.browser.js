@@ -1504,6 +1504,38 @@
     }));
   }
 
+  // graph/layout.mjs
+  function average(values) {
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : Infinity;
+  }
+  function sweep(layers, edges, forward) {
+    const positions = /* @__PURE__ */ new Map();
+    layers.forEach((layer, index) => layer.forEach((id, order) => positions.set(id, { layer: index, order })));
+    const start = forward ? 1 : layers.length - 2;
+    const end = forward ? layers.length : -1;
+    const step = forward ? 1 : -1;
+    for (let layerIndex = start; layerIndex !== end; layerIndex += step) {
+      const adjacent = new Map(layers[layerIndex].map((id) => [id, []]));
+      for (const edge of edges) {
+        const source = forward ? edge.from : edge.to;
+        const target = forward ? edge.to : edge.from;
+        if (positions.get(target)?.layer !== layerIndex || positions.get(source)?.layer !== layerIndex - step) continue;
+        adjacent.get(target)?.push(positions.get(source).order);
+      }
+      const original = new Map(layers[layerIndex].map((id, order) => [id, order]));
+      layers[layerIndex].sort((a, b) => average(adjacent.get(a)) - average(adjacent.get(b)) || original.get(a) - original.get(b));
+      layers[layerIndex].forEach((id, order) => {
+        positions.get(id).order = order;
+      });
+    }
+  }
+  function orderLayers(rounds, edges) {
+    const layers = rounds.map((layer) => [...layer]);
+    sweep(layers, edges, true);
+    sweep(layers, edges, false);
+    return layers;
+  }
+
   // app.mjs
   var byId = (id) => document.getElementById(id);
   var directFile = location.protocol === "file:";
@@ -2359,7 +2391,8 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     const detail = element("div", "", "graph-detail");
     const buttons = /* @__PURE__ */ new Map();
     const columns = [];
-    const batches = new Map(arrangement.rounds.flatMap((ids, batch) => ids.map((id) => [id, batch])));
+    const orderedRounds = orderLayers(arrangement.rounds, arrangement.edges);
+    const batches = new Map(orderedRounds.flatMap((ids, batch) => ids.map((id) => [id, batch])));
     const overview = overviewEdges(arrangement.edges, [...batches.keys()]);
     const parallel = arrangement.rounds.filter((batch) => batch.length > 1).length;
     const reason = result.plan.serialJustification;
@@ -2530,7 +2563,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       detail.replaceChildren(card);
       draw();
     }
-    arrangement.rounds.forEach((ids, index) => {
+    orderedRounds.forEach((ids, index) => {
       const column = element("section", "", "column");
       const batchLabel = element("h3", "\u7B2C " + (index + 1) + " \u6279");
       if (vertical && ids.length > 1) batchLabel.append(element("span", ids.length + " \u9879\u53EF\u5E76\u884C"));
@@ -2555,6 +2588,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       node2?.focus({ preventScroll: true });
     });
     select(selected);
+    observer?.disconnect();
     observer = new ResizeObserver(draw);
     observer.observe(graph);
   }

@@ -4,6 +4,16 @@ import {addTestTasks, schedule, serialImplementationChain} from '../workflow.mjs
 import {assignTestCases, bindTestCases, bindTestTasks, validateTaskLinks, validateTestPlan} from '../pipeline.mjs';
 import {rollbackTask, taskState, transition, validateRuntime} from '../interaction.mjs';
 import {agentForTask, approvedHandoffs, validateAgentOutput} from '../agents.mjs';
+import {orderLayers} from '../graph/layout.mjs';
+
+test('orderLayers removes a two-layer crossing and is idempotent', () => {
+  const rounds = [['A', 'B'], ['C', 'D']];
+  const edges = [{from: 'A', to: 'D'}, {from: 'B', to: 'C'}];
+  const ordered = orderLayers(rounds, edges);
+  assert.deepEqual(ordered, [['A', 'B'], ['D', 'C']]);
+  assert.deepEqual(orderLayers(ordered, edges), ordered);
+});
+
 
 const requirements = [
   {id:'R1', text:'展示并提交行程', acceptance:'拒绝无效的行程'},

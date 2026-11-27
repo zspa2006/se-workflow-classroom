@@ -6,6 +6,7 @@ import { createObservability, recordEvent, mergeStructuredEvents, getStructuredE
 import { stateLabels, taskState, rollbackScope, rollbackTargets } from './interaction.mjs';
 import { agentForTask, planningAgents } from './agents.mjs';
 import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
+import { orderLayers } from './graph/layout.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -856,7 +857,8 @@ function showGraph(tasksById, affectedIds) {
   const detail = element('div', '', 'graph-detail');
   const buttons = new Map();
   const columns = [];
-  const batches = new Map(arrangement.rounds.flatMap((ids, batch) => ids.map(id => [id, batch])));
+  const orderedRounds = orderLayers(arrangement.rounds, arrangement.edges);
+  const batches = new Map(orderedRounds.flatMap((ids, batch) => ids.map(id => [id, batch])));
   const overview = overviewEdges(arrangement.edges, [...batches.keys()]);
   const parallel = arrangement.rounds.filter(batch => batch.length > 1).length;
   const reason = result.plan.serialJustification;
@@ -1027,7 +1029,7 @@ function showGraph(tasksById, affectedIds) {
     draw();
   }
 
-  arrangement.rounds.forEach((ids, index) => {
+  orderedRounds.forEach((ids, index) => {
     const column = element('section', '', 'column');
     const batchLabel = element('h3', '第 ' + (index + 1) + ' 批');
     if (vertical && ids.length > 1) batchLabel.append(element('span', ids.length + ' 项可并行'));
@@ -1052,6 +1054,7 @@ function showGraph(tasksById, affectedIds) {
     node?.focus({preventScroll: true});
   });
   select(selected);
+  observer?.disconnect();
   observer = new ResizeObserver(draw);
   observer.observe(graph);
 }
