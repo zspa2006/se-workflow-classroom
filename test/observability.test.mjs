@@ -289,7 +289,10 @@ test('fixture 按 T12 过滤链无断点并覆盖第 2 批重跑', async () => {
   const directory = new URL('./fixtures/', import.meta.url);
   await mkdir(directory, { recursive: true });
   const fixtureTime = '2026-01-01T00:00:00.000Z';
-  const fixtureEvents = events.map((event, index) => ({...event, event_id: 'fixture_evt_' + index, timestamp: fixtureTime}));
+  const eventIds = new Map(events.map((event, index) => [event.event_id, 'fixture_evt_' + index]));
+  const fixtureEvents = events.map((event, index) => ({...event, event_id: 'fixture_evt_' + index,
+    previous_attempt_ref: eventIds.get(event.previous_attempt_ref) ?? event.previous_attempt_ref,
+    timestamp: fixtureTime}));
   const fixtureRuntime = Object.fromEntries(Object.entries(runtime).map(([id, record]) => [id,
     {...record, notes: record.notes.map(note => ({...note, time: fixtureTime}))}]));
   await writeFile(new URL('rollback-case.json', directory), JSON.stringify({ provider: 'deepseek',

@@ -757,7 +757,7 @@
       "failed_tc_ids": [],
       "batch_ids": [],
       "subtype": null,
-      "previous_attempt_ref": "evt_mwyzmt7j_e_wo09p",
+      "previous_attempt_ref": "fixture_evt_13",
       "event_type": "ATTEMPT",
       "event_id": "fixture_evt_19",
       "timestamp": "2026-01-01T00:00:00.000Z"
