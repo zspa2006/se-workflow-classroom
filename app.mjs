@@ -859,7 +859,18 @@ function showGraph(tasksById, affectedIds) {
   view.append(toolbar);
   const viewportTools = element('div', '', 'graph-viewport-tools');
   const zoom = {scale: 1};
-  const applyZoom = scale => { zoom.scale = clampScale(scale); const size = scaledSize(natural, zoom.scale); graph.style.transform = 'scale(' + zoom.scale + ')'; stage.style.width = size.width + 'px'; stage.style.height = size.height + 'px'; draw(); };
+  const applyZoom = scale => {
+    if (!natural.width) {
+      natural.width = graph.offsetWidth;
+      natural.height = graph.offsetHeight;
+    }
+    zoom.scale = clampScale(scale);
+    const size = scaledSize(natural, zoom.scale);
+    graph.style.transform = 'scale(' + zoom.scale + ')';
+    stage.style.width = size.width + 'px';
+    stage.style.height = size.height + 'px';
+    draw();
+  };
   for (const [label, factor] of [['放大', 1.25], ['缩小', 0.8]]) {
     const control = element('button', label);
     control.type = 'button';
@@ -1120,10 +1131,10 @@ function showGraph(tasksById, affectedIds) {
     graph.append(column);
     columns.push(column);
   });
-  natural.width = graph.offsetWidth;
-  natural.height = graph.offsetHeight;
   graphArea.append(scroll, breadcrumb, detail);
   view.append(graphArea);
+  natural.width = graph.offsetWidth;
+  natural.height = graph.offsetHeight;
   reset.addEventListener('click', () => {
     const node = buttons.get(selected);
     select('');

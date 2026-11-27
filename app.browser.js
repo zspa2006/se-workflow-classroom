@@ -2495,6 +2495,10 @@ export const executeCoreTask = async (req: Request, res: Response) => {
     const viewportTools = element("div", "", "graph-viewport-tools");
     const zoom = { scale: 1 };
     const applyZoom = (scale) => {
+      if (!natural.width) {
+        natural.width = graph.offsetWidth;
+        natural.height = graph.offsetHeight;
+      }
       zoom.scale = clampScale(scale);
       const size = scaledSize(natural, zoom.scale);
       graph.style.transform = "scale(" + zoom.scale + ")";
@@ -2796,10 +2800,10 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       graph.append(column);
       columns.push(column);
     });
-    natural.width = graph.offsetWidth;
-    natural.height = graph.offsetHeight;
     graphArea.append(scroll, breadcrumb, detail);
     view.append(graphArea);
+    natural.width = graph.offsetWidth;
+    natural.height = graph.offsetHeight;
     reset.addEventListener("click", () => {
       const node2 = buttons.get(selected);
       select("");
