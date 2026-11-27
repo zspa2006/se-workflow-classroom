@@ -28,7 +28,7 @@ if (windows) {
       bundle: true, platform: 'node', format: 'esm', target: 'node26',
     });
     const assetNames = ['index.html', 'style.css', 'app.browser.js', 'app.mjs', 'workflow.mjs', 'examples.mjs',
-      'pipeline.mjs', 'interaction.mjs', 'observability.mjs', 'consensus.mjs', 'agents.mjs'];
+      'pipeline.mjs', 'interaction.mjs', 'observability.mjs', 'consensus.mjs', 'distill.mjs', 'agents.mjs'];
     const config = {
       main, mainFormat: 'module', output, disableExperimentalSEAWarning: true, execArgvExtension: 'none',
       assets: Object.fromEntries(assetNames.map(name => [name, join(root, name)])),

@@ -3,6 +3,7 @@ import {taskStage, testLevelLabels} from './workflow.mjs';
 import {agentForTask, approvedHandoffs, currentAgentOutput, validateAgentOutput} from './agents.mjs';
 import {stanceLabels, discussionParticipants, acknowledgedAll, startConsensusRound,
   registerStance, confirmConsensus, validateConsensus} from './consensus.mjs';
+import {distillDiscussion, decisionTableMarkdown} from './distill.mjs';
 
 // ===== 结构化观测扩展：纯增量，既有 log 事件与导出字段保持原样 =====
 export const EVENT_TYPES = Object.freeze({
@@ -11,6 +12,7 @@ export const EVENT_TYPES = Object.freeze({
   ROLLBACK_TARGET_SELECTED: 'ROLLBACK_TARGET_SELECTED', ROLLBACK_PREVIEW: 'ROLLBACK_PREVIEW',
   ROLLBACK_EXECUTED: 'ROLLBACK_EXECUTED', HUMAN_INTERVENTION: 'HUMAN_INTERVENTION',
   HANDOFF: 'HANDOFF', BATCH_PLANNED: 'BATCH_PLANNED', TEST_CASES_ASSIGNED: 'TEST_CASES_ASSIGNED',
+  DISCUSSION_DISTILLED: 'DISCUSSION_DISTILLED',
 });
 export const REASON_CODES = Object.freeze({
   TEST_ASSERTION_FAIL: 'TEST_ASSERTION_FAIL', DESIGN_CONFLICT: 'DESIGN_CONFLICT',
@@ -200,6 +202,10 @@ export function createObservability({request, ready, adopt, getResult, getArrang
   const transcript = document.getElementById('transcript');
   const extract = document.getElementById('extract-discussion');
   const discussionError = document.getElementById('discussion-error');
+  const distillRailBody = document.getElementById('distill-rail-body');
+  const distillDialogBody = document.getElementById('distill-dialog-body');
+  const distillBadge = document.getElementById('distill-badge');
+  const distillCount = document.getElementById('distill-count');
 
   function log(stage, status, message, details = {}) {
     events.push({time: new Date().toISOString(), stage, status, message, ...details});
@@ -232,6 +238,10 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       const {mainline, points} = response.discussion;
       discussion = {transcript: source, mainline, points, confirmed: false};
       renderDiscussion();
+      renderDistill();
+      recordEvent({event_type: EVENT_TYPES.DISCUSSION_DISTILLED, entity_ref: 'discussion',
+        actor: 'agent', subtype: 'EXTRACTED', payload_ref: 'discussion.points',
+        evidence_ref: '讨论原文 ' + source.split(/\r?\n/).length + ' 行'});
     } catch (error) {
       discussionError.textContent = error.message;
     } finally {
@@ -242,13 +252,129 @@ export function createObservability({request, ready, adopt, getResult, getArrang
   transcript.addEventListener('input', () => {
     discussion = undefined;
     discussionResult.replaceChildren();
+    renderDistill();
   });
   document.getElementById('discussion-example').addEventListener('click', () => {
     if (isBusy() || transcript.disabled) return;
     transcript.value = '产品同学：先做多人旅游行程网页，每天最多 8 小时。\n前端 Agent：我建议先支持手工录入景点名称和时长。\n后端 Agent：同意。每个景点只能排一次，排不下的单独列出来。\n测试同学：景点拖到另一天超时，是拒绝还是允许警告后保存？\n产品同学：这个还需要确认。';
     discussion = undefined;
     discussionResult.replaceChildren();
+    renderDistill();
   });
+
+  // ===== 作业一「讨论 → 决策」：右上角常驻结论与顶栏浮层共用同一份视图模型 =====
+  function evidenceLines(evidence) {
+    return evidence.length ? evidence.map(item => '第 ' + item.line + ' 行').join('、') : '未附行号';
+  }
+
+  function exportDecisions() {
+    if (!discussion) return;
+    download('讨论决策表.md', decisionTableMarkdown(distillDiscussion(discussion), discussion),
+      'text/markdown;charset=utf-8');
+  }
+
+  function drawDistill(container, model, detailed) {
+    container.replaceChildren();
+    container.append(node('p', model.headline, 'distill-headline'));
+
+    container.append(node('h3', '明确意见 ' + model.decisions.length + ' 条'));
+    if (!model.decisions.length) {
+      container.append(node('p', '尚未提炼出明确意见', 'distill-empty'));
+    } else {
+      const list = node('ul', '', 'distill-list');
+      for (const item of model.decisions) {
+        const row = node('li');
+        row.dataset.status = 'ready';
+        row.append(node('strong', item.id + ' · ' + item.status), node('p', item.text, 'distill-text'),
+          node('span', '原文 ' + evidenceLines(item.evidence)));
+        if (detailed) {
+          for (const evidence of item.evidence) row.append(node('em', '第 ' + evidence.line + ' 行 · ' + evidence.quote));
+        }
+        list.append(row);
+      }
+      container.append(list);
+    }
+
+    container.append(node('h3', '待确认 ' + model.opens.length + ' 项'));
+    if (!model.opens.length) {
+      container.append(node('p', '没有待确认项', 'distill-empty'));
+    } else {
+      const list = node('ul', '', 'distill-list');
+      for (const item of model.opens) {
+        const row = node('li');
+        row.dataset.status = item.resolution ? 'ready' : 'pending';
+        row.append(node('strong', item.id + ' · ' + item.status), node('p', item.text, 'distill-text'),
+          node('span', item.resolution ? '拟议决定：' + item.resolution : '尚未填写拟议决定，门控未通过'));
+        if (detailed) {
+          for (const evidence of item.evidence) row.append(node('em', '第 ' + evidence.line + ' 行 · ' + evidence.quote));
+        }
+        list.append(row);
+      }
+      container.append(list);
+    }
+
+    container.append(node('h3', '立场 · 第 ' + (model.current || 0) + ' 轮'));
+    const stances = node('div', '', 'distill-stances');
+    for (const [label, value] of [['同意', model.stances.agree], ['反对', model.stances.object],
+      ['保留', model.stances.reserve], ['待登记', model.stances.pending]]) {
+      const cell = node('div');
+      cell.append(node('strong', String(value)), node('span', label));
+      stances.append(cell);
+    }
+    container.append(stances);
+    if (detailed && model.stances.rows.length) {
+      const list = node('ul', '', 'distill-list');
+      for (const row of model.stances.rows) {
+        const item = node('li');
+        item.append(node('strong', row.name + ' · ' + row.stanceLabel),
+          node('span', row.note ? (row.point ? row.point + ' · ' : '') + row.note : '未填写意见'));
+        list.append(item);
+      }
+      container.append(list);
+    }
+
+    container.append(node('h3', 'G2 讨论门控 · ' + (model.gate.passed ? '通过' : '未通过')));
+    const gate = node('ul', '', 'distill-gate');
+    for (const check of model.gate.checks) {
+      const row = node('li');
+      row.dataset.ok = String(check.ok);
+      row.append(node('b', check.ok ? '✓' : '○'), node('span', check.id + ' · ' + check.label + ' · ' + check.detail));
+      gate.append(row);
+    }
+    container.append(gate);
+
+    if (!detailed) {
+      const actions = node('div', '', 'distill-actions');
+      actions.append(button('查看完整结论', () => {
+        renderDistill();
+        document.getElementById('distill-dialog').showModal();
+      }), button('导出决策表', exportDecisions));
+      container.append(actions);
+    }
+  }
+
+  function renderDistill() {
+    const model = distillDiscussion(discussion);
+    if (distillBadge) {
+      distillBadge.textContent = model.stateLabel;
+      distillBadge.dataset.state = model.state;
+    }
+    if (distillCount) {
+      distillCount.textContent = model.gate.passed ? '已通过'
+        : model.state === 'empty' ? '待提炼'
+          : model.gate.checks.filter(check => !check.ok).length + ' 项待办';
+    }
+    if (distillRailBody) drawDistill(distillRailBody, model, false);
+    if (distillDialogBody) drawDistill(distillDialogBody, model, true);
+    const exportButton = document.getElementById('export-decisions');
+    if (exportButton) exportButton.disabled = !discussion;
+  }
+
+  document.getElementById('open-distill').addEventListener('click', () => {
+    renderDistill();
+    document.getElementById('distill-dialog').showModal();
+  });
+  document.getElementById('export-decisions').addEventListener('click', exportDecisions);
 
   function renderDiscussion() {
     discussionResult.replaceChildren();
@@ -294,6 +420,9 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       discussion = accepted.discussion;
       log('共识确认', '全员同意', '第 ' + current.number + ' 轮获 ' + discussion.participants.length + ' 位参与者同意，已转入产品想法',
         {round: current.number, participants: discussion.participants});
+      recordEvent({event_type: EVENT_TYPES.DISCUSSION_DISTILLED, entity_ref: 'discussion', actor: 'human',
+        subtype: 'CONFIRMED', evidence_ref: 'discussion.confirmedText',
+        payload_ref: 'discussion.rounds[' + (current.number - 1) + ']'});
     }));
     confirm.disabled = !readyToConfirm;
     discussionResult.append(node('p', readyToConfirm ? '全员已同意本轮提案。' : '本轮全员同意后可转入产品想法。', 'hint'), confirm);
@@ -308,6 +437,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       action();
       discussionError.textContent = '';
       renderDiscussion();
+      renderDistill();
     } catch (error) {
       discussionError.textContent = error.message;
     }
@@ -638,9 +768,11 @@ export function createObservability({request, ready, adopt, getResult, getArrang
     download('运行与交互记录.json', JSON.stringify({events, runtime, discussion,
       structured_events: getStructuredEvents(), summary: buildSummary()},null,2), 'application/json');
   });
+  renderDistill();
   return {
     log, renderExecution,
-    reset() { events = []; this.resetRuntime(); discussion = undefined; discussionResult.replaceChildren(); renderActivity(); },
+    reset() { events = []; this.resetRuntime(); discussion = undefined; discussionResult.replaceChildren();
+      renderDistill(); renderActivity(); },
     resetRuntime() { runtime = {}; pendingAgents.clear(); agentErrors.clear(); noteDrafts.clear(); },
     snapshot() { return structuredClone({events, runtime, discussion}); },
     restore(value, plan, arrangement) {
@@ -657,7 +789,7 @@ export function createObservability({request, ready, adopt, getResult, getArrang
       this.resetRuntime();
       events = restored.events; runtime = restored.runtime; discussion = restored.discussion;
       if (discussion) transcript.value = discussion.transcript;
-      renderActivity(); renderDiscussion();
+      renderActivity(); renderDiscussion(); renderDistill();
     },
   };
 }
