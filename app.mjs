@@ -7,7 +7,7 @@ import { stateLabels, taskState, rollbackScope, rollbackTargets } from './intera
 import { agentForTask, planningAgents } from './agents.mjs';
 import { statusBadge, statusLegend, rollbackAffectedIds } from './status.mjs';
 import { orderLayers, transitiveUpstream, transitiveDownstream, focusBreadcrumb, groupByDepth } from './graph/layout.mjs';
-import { taskDepths, criticalChain } from './graph/batches.mjs';
+import { taskDepths, criticalChain, rollbackCausality } from './graph/batches.mjs';
 
 const byId = id => document.getElementById(id);
 const directFile = location.protocol === 'file:';
@@ -776,6 +776,7 @@ function listTasks(affectedIds) {
 function showRounds(tasksById, affectedIds) {
   const depths = taskDepths(arrangement.dependencies);
   const chain = criticalChain(arrangement.dependencies, depths);
+  const causality = new Map(rollbackCausality(monitor.getRuntime()).map(item => [item.taskId, item]));
   const chainBatches = new Set(chain.map(id => arrangement.rounds.findIndex(batch => batch.includes(id))));
   view.append(element('p', '当前每批最多 ' + arrangement.capacity + ' 项。依赖深度最长链覆盖 ' + chainBatches.size + ' 个批次。', 'hint'));
   arrangement.rounds.forEach((ids, index) => {
@@ -784,6 +785,10 @@ function showRounds(tasksById, affectedIds) {
     const cards = ids.map(id => {
       const card = taskCard(tasksById.get(id), false, false, affectedIds);
       if (chain.includes(id)) card.classList.add('critical-task');
+      const record = monitor.getRuntime()[id];
+      if ((record?.attempts ?? 0) > 1) card.append(element('p', '重跑次数：' + record.attempts, 'batch-attempts'));
+      const rollback = causality.get(id);
+      if (rollback) card.append(element('p', '回退因果：检查点 ' + rollback.checkpoint + ' 失败，目标实现 ' + rollback.target + '；需重验：' + (rollback.invalidated.join('、') || '无'), 'batch-causality'));
       card.append(element('p', '前置任务：' + (arrangement.dependencies[id].join('、') || '无')));
       return card;
     });

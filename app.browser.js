@@ -1610,6 +1610,19 @@
     }
     return chain;
   }
+  function rollbackCausality(runtime) {
+    const rows = [];
+    for (const [taskId, record] of Object.entries(runtime)) for (const note of record.notes ?? []) {
+      if (note.action !== "rollback") continue;
+      rows.push({
+        taskId,
+        checkpoint: note.test,
+        target: note.target,
+        invalidated: Object.entries(runtime).filter(([, item]) => item.notes?.some((entry) => entry.action === "invalidated" && entry.test === note.test && entry.target === note.target)).map(([id]) => id).sort()
+      });
+    }
+    return rows;
+  }
 
   // app.mjs
   var byId = (id) => document.getElementById(id);
@@ -2387,6 +2400,7 @@ export const executeCoreTask = async (req: Request, res: Response) => {
   function showRounds(tasksById, affectedIds) {
     const depths = taskDepths(arrangement.dependencies);
     const chain = criticalChain(arrangement.dependencies, depths);
+    const causality = new Map(rollbackCausality(monitor.getRuntime()).map((item) => [item.taskId, item]));
     const chainBatches = new Set(chain.map((id) => arrangement.rounds.findIndex((batch) => batch.includes(id))));
     view.append(element("p", "\u5F53\u524D\u6BCF\u6279\u6700\u591A " + arrangement.capacity + " \u9879\u3002\u4F9D\u8D56\u6DF1\u5EA6\u6700\u957F\u94FE\u8986\u76D6 " + chainBatches.size + " \u4E2A\u6279\u6B21\u3002", "hint"));
     arrangement.rounds.forEach((ids, index) => {
@@ -2395,6 +2409,10 @@ export const executeCoreTask = async (req: Request, res: Response) => {
       const cards = ids.map((id) => {
         const card = taskCard(tasksById.get(id), false, false, affectedIds);
         if (chain.includes(id)) card.classList.add("critical-task");
+        const record = monitor.getRuntime()[id];
+        if ((record?.attempts ?? 0) > 1) card.append(element("p", "\u91CD\u8DD1\u6B21\u6570\uFF1A" + record.attempts, "batch-attempts"));
+        const rollback = causality.get(id);
+        if (rollback) card.append(element("p", "\u56DE\u9000\u56E0\u679C\uFF1A\u68C0\u67E5\u70B9 " + rollback.checkpoint + " \u5931\u8D25\uFF0C\u76EE\u6807\u5B9E\u73B0 " + rollback.target + "\uFF1B\u9700\u91CD\u9A8C\uFF1A" + (rollback.invalidated.join("\u3001") || "\u65E0"), "batch-causality"));
         card.append(element("p", "\u524D\u7F6E\u4EFB\u52A1\uFF1A" + (arrangement.dependencies[id].join("\u3001") || "\u65E0")));
         return card;
       });
