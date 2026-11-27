@@ -288,10 +288,14 @@ test('fixture 按 T12 过滤链无断点并覆盖第 2 批重跑', async () => {
   const { arrangement, runtime, events, summary } = buildRollbackChain();
   const directory = new URL('./fixtures/', import.meta.url);
   await mkdir(directory, { recursive: true });
+  const fixtureTime = '2026-01-01T00:00:00.000Z';
+  const fixtureEvents = events.map(event => ({...event, timestamp: fixtureTime}));
+  const fixtureRuntime = Object.fromEntries(Object.entries(runtime).map(([id, record]) => [id,
+    {...record, notes: record.notes.map(note => ({...note, time: fixtureTime}))}]));
   await writeFile(new URL('rollback-case.json', directory), JSON.stringify({ provider: 'deepseek',
     spec: '行程分配样例', plan, arrangement,
-    observation: { events: [{ stage: '旧事件', status: '完成', message: '保留原样', time: '2026-01-01T00:00:00.000Z' }], runtime },
-    events, summary }, null, 2));
+    observation: { events: [{ stage: '旧事件', status: '完成', message: '保留原样', time: fixtureTime }], runtime: fixtureRuntime },
+    events: fixtureEvents, summary }, null, 2));
   const saved = JSON.parse(await readFile(new URL('rollback-case.json', directory), 'utf8'));
   const chain = saved.events.filter(event => event.t_id === 'T12' || event.entity_ref === 'T12');
   assert(chain.length >= 8);
