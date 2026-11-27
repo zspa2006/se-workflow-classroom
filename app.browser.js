@@ -411,6 +411,181 @@
     }
   }
 
+  // distill.mjs
+  var GATE_CHECKS = [
+    { id: "G2-1", label: "\u8981\u70B9\u5DF2\u63D0\u70BC\uFF0C\u4E14\u6BCF\u6761\u90FD\u5E26\u539F\u6587\u884C\u53F7" },
+    { id: "G2-2", label: "\u5F85\u786E\u8BA4\u9879\u90FD\u6709\u62DF\u8BAE\u51B3\u5B9A" },
+    { id: "G2-3", label: "\u6CA1\u6709\u672A\u5904\u7406\u7684\u53CD\u5BF9\u4E0E\u4FDD\u7559" },
+    { id: "G2-4", label: "\u672C\u8F6E\u53C2\u4E0E\u8005\u7ACB\u573A\u5DF2\u767B\u8BB0\u9F50" },
+    { id: "G2-5", label: "\u5168\u5458\u540C\u610F\u6216\u8D1F\u8D23\u4EBA\u5DF2\u786E\u8BA4" }
+  ];
+  var STATE_LABELS = {
+    empty: "\u5F85\u63D0\u70BC",
+    extracted: "\u5DF2\u63D0\u70BC \xB7 \u5F85\u8D77\u8349",
+    round: "\u786E\u8BA4\u8F6E\u8FDB\u884C\u4E2D",
+    confirmed: "\u5DF2\u786E\u8BA4"
+  };
+  function clip(text2, limit = 72) {
+    const value = String(text2 ?? "").replace(/\s+/g, " ").trim();
+    return value.length > limit ? value.slice(0, limit) + "\u2026" : value;
+  }
+  function lineLabel(evidence) {
+    return evidence.map((item) => "\u7B2C " + item.line + " \u884C").join("\u3001");
+  }
+  function quote(evidence) {
+    return evidence.map((item) => item.quote).join(" / ");
+  }
+  function resolutionsFor(discussion) {
+    const current = discussion.rounds?.at(-1);
+    if (current?.resolutions) return current.resolutions;
+    if (discussion.resolutions) return discussion.resolutions;
+    return {};
+  }
+  function distillDiscussion(discussion) {
+    if (!discussion || !Array.isArray(discussion.points) || !discussion.points.length) {
+      return {
+        state: "empty",
+        stateLabel: STATE_LABELS.empty,
+        headline: "\u5C1A\u672A\u63D0\u70BC\u8BA8\u8BBA",
+        counts: { decisions: 0, opens: 0, confirmed: 0 },
+        decisions: [],
+        opens: [],
+        stances: { total: 0, agree: 0, object: 0, reserve: 0, pending: 0, rows: [] },
+        gate: { passed: false, checks: GATE_CHECKS.map((item) => ({ ...item, ok: false, detail: "\u5C1A\u672A\u63D0\u70BC" })) },
+        rounds: 0,
+        current: 0,
+        evidenced: false
+      };
+    }
+    const rounds = discussion.rounds ?? [];
+    const current = rounds.at(-1);
+    const resolutions = resolutionsFor(discussion);
+    const decisionPoints = discussion.points.filter((point) => point.kind !== "open");
+    const openPoints = discussion.points.filter((point) => point.kind === "open");
+    const decisions = decisionPoints.map((point, index) => ({
+      id: "D-" + String(index + 1).padStart(2, "0"),
+      pointId: point.id,
+      text: point.text,
+      resolution: "",
+      status: "\u5DF2\u660E\u786E",
+      evidence: point.evidence ?? []
+    }));
+    const opens = openPoints.map((point, index) => ({
+      id: "Q-" + String(index + 1).padStart(2, "0"),
+      pointId: point.id,
+      text: point.text,
+      resolution: resolutions[point.id] ?? "",
+      status: resolutions[point.id] ? "\u5DF2\u62DF\u8BAE" : "\u5F85\u586B\u5199",
+      evidence: point.evidence ?? []
+    }));
+    if (discussion.confirmed) {
+      for (const item of [...decisions, ...opens]) {
+        if (item.resolution || item.status === "\u5DF2\u660E\u786E") item.status = "\u5DF2\u5B9A\u7A3F";
+      }
+    }
+    const participants = discussion.participants ?? [];
+    const votes = current?.votes ?? [];
+    const rows = participants.map((name) => {
+      const vote = votes.find((item) => item.participant === name);
+      return {
+        name,
+        stance: vote?.stance ?? "",
+        stanceLabel: vote ? stanceLabels[vote.stance] : "\u5F85\u767B\u8BB0",
+        point: vote?.point ?? "",
+        note: vote?.note ?? ""
+      };
+    });
+    const count = (stance) => rows.filter((row) => row.stance === stance).length;
+    const stances = {
+      total: participants.length,
+      agree: count("agree"),
+      object: count("object"),
+      reserve: count("reserve"),
+      pending: rows.filter((row) => !row.stance).length,
+      rows
+    };
+    const evidenced = discussion.points.every((point) => (point.evidence ?? []).length > 0 && point.evidence.every((item) => Number.isInteger(item.line) && String(item.quote ?? "").trim()));
+    const previous = rounds.at(-2);
+    const objections = (previous?.votes ?? []).filter((vote) => vote.stance !== "agree");
+    const unanswered = objections.filter((vote) => !current?.responses?.[vote.participant]);
+    const blocked = votes.filter((vote) => vote.stance !== "agree");
+    const allAgree = discussion.confirmed || (current ? acknowledgedAll(discussion) : false);
+    const checks = [
+      {
+        ...GATE_CHECKS[0],
+        ok: evidenced && discussion.points.length > 0,
+        detail: evidenced ? discussion.points.length + " \u6761\u8981\u70B9\u5747\u6709\u884C\u53F7\u4E0E\u5F15\u6587" : "\u5B58\u5728\u6CA1\u6709\u884C\u53F7\u5F15\u6587\u7684\u8981\u70B9"
+      },
+      {
+        ...GATE_CHECKS[1],
+        ok: openPoints.length === 0 || openPoints.every((point) => resolutions[point.id]),
+        detail: openPoints.length === 0 ? "\u6CA1\u6709\u5F85\u786E\u8BA4\u9879" : openPoints.filter((point) => resolutions[point.id]).length + " / " + openPoints.length + " \u9879\u5DF2\u62DF\u8BAE"
+      },
+      {
+        ...GATE_CHECKS[2],
+        ok: unanswered.length === 0 && blocked.length === 0,
+        detail: unanswered.length ? "\u4E0A\u4E00\u8F6E\u5F02\u8BAE\u672A\u56DE\u5E94\uFF1A" + unanswered.map((vote) => vote.participant).join("\u3001") : blocked.length ? "\u5F85\u5904\u7406\uFF1A" + blocked.map((vote) => vote.participant + " " + stanceLabels[vote.stance]).join("\u3001") : "\u672C\u8F6E\u6CA1\u6709\u672A\u5904\u7406\u7684\u53CD\u5BF9\u6216\u4FDD\u7559"
+      },
+      {
+        ...GATE_CHECKS[3],
+        ok: Boolean(current) && stances.pending === 0,
+        detail: current ? stances.total - stances.pending + " / " + stances.total + " \u4F4D\u5DF2\u767B\u8BB0" : "\u5C1A\u672A\u5F00\u542F\u786E\u8BA4\u8F6E"
+      },
+      {
+        ...GATE_CHECKS[4],
+        ok: allAgree,
+        detail: discussion.confirmed ? "\u8D1F\u8D23\u4EBA\u5DF2\u786E\u8BA4\u5E76\u8F6C\u5165\u4EA7\u54C1\u60F3\u6CD5" : allAgree ? "\u672C\u8F6E\u5168\u5458\u540C\u610F\uFF0C\u53EF\u786E\u8BA4" : "\u7B49\u5F85\u5168\u5458\u540C\u610F"
+      }
+    ];
+    const passed = checks.every((item) => item.ok);
+    let state = "extracted";
+    if (discussion.confirmed) state = "confirmed";
+    else if (current) state = "round";
+    const proposal = current?.proposal ?? discussion.mainline ?? "";
+    const headline = discussion.confirmed ? "\u5DF2\u786E\u8BA4\uFF1A" + clip(discussion.confirmedText ?? proposal) : current ? "\u7B2C " + current.number + " \u8F6E\u5F85\u786E\u8BA4\uFF1A" + clip(proposal) : "\u5DF2\u63D0\u70BC " + decisions.length + " \u6761\u660E\u786E\u610F\u89C1\u3001" + opens.length + " \u9879\u5F85\u786E\u8BA4";
+    return {
+      state,
+      stateLabel: STATE_LABELS[state],
+      headline,
+      counts: {
+        decisions: decisions.length,
+        opens: opens.length,
+        confirmed: discussion.confirmed ? 1 : 0
+      },
+      decisions,
+      opens,
+      stances,
+      gate: { passed, checks },
+      rounds: rounds.length,
+      current: current?.number ?? 0,
+      evidenced,
+      proposal
+    };
+  }
+  function decisionTableMarkdown(model, discussion) {
+    const lines = ["## \u8BA8\u8BBA\u84B8\u998F\u7ED3\u8BBA", "", model.headline, ""];
+    lines.push("| \u7F16\u53F7 | \u7ED3\u8BBA / \u5F85\u786E\u8BA4\u9879 | \u539F\u6587\u4F9D\u636E | \u72B6\u6001 |", "| --- | --- | --- | --- |");
+    for (const item of model.decisions) {
+      lines.push("| " + item.id + " | " + item.text + " | " + lineLabel(item.evidence) + " \xB7 " + quote(item.evidence) + " | " + item.status + " |");
+    }
+    for (const item of model.opens) {
+      lines.push("| " + item.id + " | " + item.text + (item.resolution ? " \u2192 \u62DF\u8BAE\uFF1A" + item.resolution : "") + " | " + lineLabel(item.evidence) + " \xB7 " + quote(item.evidence) + " | " + item.status + " |");
+    }
+    lines.push("", "### \u7ACB\u573A\u767B\u8BB0\uFF08\u7B2C " + (model.current || 0) + " \u8F6E\uFF09", "");
+    if (!model.stances.rows.length) lines.push("- \u5C1A\u672A\u767B\u8BB0");
+    for (const row of model.stances.rows) {
+      lines.push("- " + row.name + " \xB7 " + row.stanceLabel + (row.point ? " \xB7 " + row.point : "") + (row.note ? " \xB7 " + row.note : ""));
+    }
+    lines.push("", "### G2 \u8BA8\u8BBA\u95E8\u63A7", "", model.gate.passed ? "- \u7ED3\u8BBA\uFF1A\u901A\u8FC7" : "- \u7ED3\u8BBA\uFF1A\u672A\u901A\u8FC7");
+    for (const check3 of model.gate.checks) {
+      lines.push("- " + (check3.ok ? "[\u901A\u8FC7] " : "[\u5F85\u529E] ") + check3.id + " " + check3.label + " \u2014\u2014 " + check3.detail);
+    }
+    if (discussion?.transcript) {
+      lines.push("", "### \u8BA8\u8BBA\u539F\u6587", "", ...discussion.transcript.split(/\r?\n/).map((line, index) => index + 1 + "  " + line));
+    }
+    return lines.join("\n");
+  }
+
   // observability.mjs
   var EVENT_TYPES = Object.freeze({
     STAGE_START: "STAGE_START",
@@ -425,7 +600,8 @@
     HUMAN_INTERVENTION: "HUMAN_INTERVENTION",
     HANDOFF: "HANDOFF",
     BATCH_PLANNED: "BATCH_PLANNED",
-    TEST_CASES_ASSIGNED: "TEST_CASES_ASSIGNED"
+    TEST_CASES_ASSIGNED: "TEST_CASES_ASSIGNED",
+    DISCUSSION_DISTILLED: "DISCUSSION_DISTILLED"
   });
   var REASON_CODES = Object.freeze({
     TEST_ASSERTION_FAIL: "TEST_ASSERTION_FAIL",
@@ -623,6 +799,10 @@
     const transcript = document.getElementById("transcript");
     const extract = document.getElementById("extract-discussion");
     const discussionError = document.getElementById("discussion-error");
+    const distillRailBody = document.getElementById("distill-rail-body");
+    const distillDialogBody = document.getElementById("distill-dialog-body");
+    const distillBadge = document.getElementById("distill-badge");
+    const distillCount = document.getElementById("distill-count");
     function log(stage, status, message, details = {}) {
       events.push({ time: (/* @__PURE__ */ new Date()).toISOString(), stage, status, message, ...details });
       renderActivity();
@@ -656,6 +836,15 @@
         const { mainline, points } = response.discussion;
         discussion = { transcript: source, mainline, points, confirmed: false };
         renderDiscussion();
+        renderDistill();
+        recordEvent({
+          event_type: EVENT_TYPES.DISCUSSION_DISTILLED,
+          entity_ref: "discussion",
+          actor: "agent",
+          subtype: "EXTRACTED",
+          payload_ref: "discussion.points",
+          evidence_ref: "\u8BA8\u8BBA\u539F\u6587 " + source.split(/\r?\n/).length + " \u884C"
+        });
       } catch (error) {
         discussionError.textContent = error.message;
       } finally {
@@ -666,13 +855,131 @@
     transcript.addEventListener("input", () => {
       discussion = void 0;
       discussionResult.replaceChildren();
+      renderDistill();
     });
     document.getElementById("discussion-example").addEventListener("click", () => {
       if (isBusy() || transcript.disabled) return;
       transcript.value = "\u4EA7\u54C1\u540C\u5B66\uFF1A\u5148\u505A\u591A\u4EBA\u65C5\u6E38\u884C\u7A0B\u7F51\u9875\uFF0C\u6BCF\u5929\u6700\u591A 8 \u5C0F\u65F6\u3002\n\u524D\u7AEF Agent\uFF1A\u6211\u5EFA\u8BAE\u5148\u652F\u6301\u624B\u5DE5\u5F55\u5165\u666F\u70B9\u540D\u79F0\u548C\u65F6\u957F\u3002\n\u540E\u7AEF Agent\uFF1A\u540C\u610F\u3002\u6BCF\u4E2A\u666F\u70B9\u53EA\u80FD\u6392\u4E00\u6B21\uFF0C\u6392\u4E0D\u4E0B\u7684\u5355\u72EC\u5217\u51FA\u6765\u3002\n\u6D4B\u8BD5\u540C\u5B66\uFF1A\u666F\u70B9\u62D6\u5230\u53E6\u4E00\u5929\u8D85\u65F6\uFF0C\u662F\u62D2\u7EDD\u8FD8\u662F\u5141\u8BB8\u8B66\u544A\u540E\u4FDD\u5B58\uFF1F\n\u4EA7\u54C1\u540C\u5B66\uFF1A\u8FD9\u4E2A\u8FD8\u9700\u8981\u786E\u8BA4\u3002";
       discussion = void 0;
       discussionResult.replaceChildren();
+      renderDistill();
     });
+    function evidenceLines(evidence) {
+      return evidence.length ? evidence.map((item) => "\u7B2C " + item.line + " \u884C").join("\u3001") : "\u672A\u9644\u884C\u53F7";
+    }
+    function exportDecisions() {
+      if (!discussion) return;
+      download(
+        "\u8BA8\u8BBA\u51B3\u7B56\u8868.md",
+        decisionTableMarkdown(distillDiscussion(discussion), discussion),
+        "text/markdown;charset=utf-8"
+      );
+    }
+    function drawDistill(container, model, detailed) {
+      container.replaceChildren();
+      container.append(node("p", model.headline, "distill-headline"));
+      container.append(node("h3", "\u660E\u786E\u610F\u89C1 " + model.decisions.length + " \u6761"));
+      if (!model.decisions.length) {
+        container.append(node("p", "\u5C1A\u672A\u63D0\u70BC\u51FA\u660E\u786E\u610F\u89C1", "distill-empty"));
+      } else {
+        const list = node("ul", "", "distill-list");
+        for (const item of model.decisions) {
+          const row = node("li");
+          row.dataset.status = "ready";
+          row.append(
+            node("strong", item.id + " \xB7 " + item.status),
+            node("p", item.text, "distill-text"),
+            node("span", "\u539F\u6587 " + evidenceLines(item.evidence))
+          );
+          if (detailed) {
+            for (const evidence of item.evidence) row.append(node("em", "\u7B2C " + evidence.line + " \u884C \xB7 " + evidence.quote));
+          }
+          list.append(row);
+        }
+        container.append(list);
+      }
+      container.append(node("h3", "\u5F85\u786E\u8BA4 " + model.opens.length + " \u9879"));
+      if (!model.opens.length) {
+        container.append(node("p", "\u6CA1\u6709\u5F85\u786E\u8BA4\u9879", "distill-empty"));
+      } else {
+        const list = node("ul", "", "distill-list");
+        for (const item of model.opens) {
+          const row = node("li");
+          row.dataset.status = item.resolution ? "ready" : "pending";
+          row.append(
+            node("strong", item.id + " \xB7 " + item.status),
+            node("p", item.text, "distill-text"),
+            node("span", item.resolution ? "\u62DF\u8BAE\u51B3\u5B9A\uFF1A" + item.resolution : "\u5C1A\u672A\u586B\u5199\u62DF\u8BAE\u51B3\u5B9A\uFF0C\u95E8\u63A7\u672A\u901A\u8FC7")
+          );
+          if (detailed) {
+            for (const evidence of item.evidence) row.append(node("em", "\u7B2C " + evidence.line + " \u884C \xB7 " + evidence.quote));
+          }
+          list.append(row);
+        }
+        container.append(list);
+      }
+      container.append(node("h3", "\u7ACB\u573A \xB7 \u7B2C " + (model.current || 0) + " \u8F6E"));
+      const stances = node("div", "", "distill-stances");
+      for (const [label, value] of [
+        ["\u540C\u610F", model.stances.agree],
+        ["\u53CD\u5BF9", model.stances.object],
+        ["\u4FDD\u7559", model.stances.reserve],
+        ["\u5F85\u767B\u8BB0", model.stances.pending]
+      ]) {
+        const cell = node("div");
+        cell.append(node("strong", String(value)), node("span", label));
+        stances.append(cell);
+      }
+      container.append(stances);
+      if (detailed && model.stances.rows.length) {
+        const list = node("ul", "", "distill-list");
+        for (const row of model.stances.rows) {
+          const item = node("li");
+          item.append(
+            node("strong", row.name + " \xB7 " + row.stanceLabel),
+            node("span", row.note ? (row.point ? row.point + " \xB7 " : "") + row.note : "\u672A\u586B\u5199\u610F\u89C1")
+          );
+          list.append(item);
+        }
+        container.append(list);
+      }
+      container.append(node("h3", "G2 \u8BA8\u8BBA\u95E8\u63A7 \xB7 " + (model.gate.passed ? "\u901A\u8FC7" : "\u672A\u901A\u8FC7")));
+      const gate = node("ul", "", "distill-gate");
+      for (const check3 of model.gate.checks) {
+        const row = node("li");
+        row.dataset.ok = String(check3.ok);
+        row.append(node("b", check3.ok ? "\u2713" : "\u25CB"), node("span", check3.id + " \xB7 " + check3.label + " \xB7 " + check3.detail));
+        gate.append(row);
+      }
+      container.append(gate);
+      if (!detailed) {
+        const actions = node("div", "", "distill-actions");
+        actions.append(button("\u67E5\u770B\u5B8C\u6574\u7ED3\u8BBA", () => {
+          renderDistill();
+          document.getElementById("distill-dialog").showModal();
+        }), button("\u5BFC\u51FA\u51B3\u7B56\u8868", exportDecisions));
+        container.append(actions);
+      }
+    }
+    function renderDistill() {
+      const model = distillDiscussion(discussion);
+      if (distillBadge) {
+        distillBadge.textContent = model.stateLabel;
+        distillBadge.dataset.state = model.state;
+      }
+      if (distillCount) {
+        distillCount.textContent = model.gate.passed ? "\u5DF2\u901A\u8FC7" : model.state === "empty" ? "\u5F85\u63D0\u70BC" : model.gate.checks.filter((check3) => !check3.ok).length + " \u9879\u5F85\u529E";
+      }
+      if (distillRailBody) drawDistill(distillRailBody, model, false);
+      if (distillDialogBody) drawDistill(distillDialogBody, model, true);
+      const exportButton = document.getElementById("export-decisions");
+      if (exportButton) exportButton.disabled = !discussion;
+    }
+    document.getElementById("open-distill").addEventListener("click", () => {
+      renderDistill();
+      document.getElementById("distill-dialog").showModal();
+    });
+    document.getElementById("export-decisions").addEventListener("click", exportDecisions);
     function renderDiscussion() {
       discussionResult.replaceChildren();
       if (!discussion) return;
@@ -730,6 +1037,14 @@
           "\u7B2C " + current.number + " \u8F6E\u83B7 " + discussion.participants.length + " \u4F4D\u53C2\u4E0E\u8005\u540C\u610F\uFF0C\u5DF2\u8F6C\u5165\u4EA7\u54C1\u60F3\u6CD5",
           { round: current.number, participants: discussion.participants }
         );
+        recordEvent({
+          event_type: EVENT_TYPES.DISCUSSION_DISTILLED,
+          entity_ref: "discussion",
+          actor: "human",
+          subtype: "CONFIRMED",
+          evidence_ref: "discussion.confirmedText",
+          payload_ref: "discussion.rounds[" + (current.number - 1) + "]"
+        });
       }));
       confirm.disabled = !readyToConfirm;
       discussionResult.append(node("p", readyToConfirm ? "\u5168\u5458\u5DF2\u540C\u610F\u672C\u8F6E\u63D0\u6848\u3002" : "\u672C\u8F6E\u5168\u5458\u540C\u610F\u540E\u53EF\u8F6C\u5165\u4EA7\u54C1\u60F3\u6CD5\u3002", "hint"), confirm);
@@ -743,6 +1058,7 @@
         action();
         discussionError.textContent = "";
         renderDiscussion();
+        renderDistill();
       } catch (error) {
         discussionError.textContent = error.message;
       }
@@ -1141,6 +1457,7 @@
         summary: buildSummary()
       }, null, 2), "application/json");
     });
+    renderDistill();
     return {
       log,
       renderExecution,
@@ -1149,6 +1466,7 @@
         this.resetRuntime();
         discussion = void 0;
         discussionResult.replaceChildren();
+        renderDistill();
         renderActivity();
       },
       resetRuntime() {
@@ -1176,6 +1494,7 @@
         if (discussion) transcript.value = discussion.transcript;
         renderActivity();
         renderDiscussion();
+        renderDistill();
       }
     };
   }

@@ -25,6 +25,7 @@ const files = new Map([
   ['/interaction.mjs', ['interaction.mjs', 'text/javascript']],
   ['/observability.mjs', ['observability.mjs', 'text/javascript']],
   ['/consensus.mjs', ['consensus.mjs', 'text/javascript']],
+  ['/distill.mjs', ['distill.mjs', 'text/javascript']],
   ['/agents.mjs', ['agents.mjs', 'text/javascript']],
   ['/examples.mjs', ['examples.mjs', 'text/javascript']],
   ['/style.css', ['style.css', 'text/css']],
