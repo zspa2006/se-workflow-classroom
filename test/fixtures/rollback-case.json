@@ -307,7 +307,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "BATCH_PLANNED",
-      "event_id": "evt_mwyzdd9s_1_gka1z",
+      "event_id": "fixture_evt_0",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -333,7 +333,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TEST_CASES_ASSIGNED",
-      "event_id": "evt_mwyzdd9s_2_k7y7t",
+      "event_id": "fixture_evt_1",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -356,7 +356,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_3_syv28",
+      "event_id": "fixture_evt_2",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -379,7 +379,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_4_veu9i",
+      "event_id": "fixture_evt_3",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -402,7 +402,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "DELIVERY_CONFIRMED",
-      "event_id": "evt_mwyzdd9s_5_1jhxj",
+      "event_id": "fixture_evt_4",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -425,7 +425,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_6_fnjjo",
+      "event_id": "fixture_evt_5",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -448,7 +448,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_7_nkvoz",
+      "event_id": "fixture_evt_6",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -471,7 +471,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "DELIVERY_CONFIRMED",
-      "event_id": "evt_mwyzdd9s_8_nicot",
+      "event_id": "fixture_evt_7",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -494,7 +494,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_9_ndnvt",
+      "event_id": "fixture_evt_8",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -517,7 +517,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_a_fsa15",
+      "event_id": "fixture_evt_9",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -540,7 +540,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "DELIVERY_CONFIRMED",
-      "event_id": "evt_mwyzdd9s_b_ojzkn",
+      "event_id": "fixture_evt_10",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -563,7 +563,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_c_oiwin",
+      "event_id": "fixture_evt_11",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -586,7 +586,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_d_2kuai",
+      "event_id": "fixture_evt_12",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -613,7 +613,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "ATTEMPT",
-      "event_id": "evt_mwyzdd9s_e_xmqou",
+      "event_id": "fixture_evt_13",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -636,7 +636,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "ROLLBACK_TARGET_SELECTED",
-      "event_id": "evt_mwyzdd9s_f_fnmhz",
+      "event_id": "fixture_evt_14",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -663,7 +663,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "ROLLBACK_PREVIEW",
-      "event_id": "evt_mwyzdd9s_g_9c00h",
+      "event_id": "fixture_evt_15",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -686,7 +686,7 @@
       "subtype": "ROLLBACK_DECISION",
       "previous_attempt_ref": null,
       "event_type": "HUMAN_INTERVENTION",
-      "event_id": "evt_mwyzdd9s_h_9uylx",
+      "event_id": "fixture_evt_16",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -713,7 +713,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "ROLLBACK_EXECUTED",
-      "event_id": "evt_mwyzdd9s_i_y3psk",
+      "event_id": "fixture_evt_17",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -736,7 +736,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_j_tvzpa",
+      "event_id": "fixture_evt_18",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -757,9 +757,9 @@
       "failed_tc_ids": [],
       "batch_ids": [],
       "subtype": null,
-      "previous_attempt_ref": "evt_mwyzdd9s_e_xmqou",
+      "previous_attempt_ref": "evt_mwyzmt7j_e_wo09p",
       "event_type": "ATTEMPT",
-      "event_id": "evt_mwyzdd9s_k_5vyjt",
+      "event_id": "fixture_evt_19",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -782,7 +782,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_l_5zls4",
+      "event_id": "fixture_evt_20",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -805,7 +805,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "DELIVERY_CONFIRMED",
-      "event_id": "evt_mwyzdd9s_m_stgd8",
+      "event_id": "fixture_evt_21",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -828,7 +828,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_n_wu0tl",
+      "event_id": "fixture_evt_22",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -851,7 +851,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_o_x4pj6",
+      "event_id": "fixture_evt_23",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -874,7 +874,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "DELIVERY_CONFIRMED",
-      "event_id": "evt_mwyzdd9s_p_1ri6f",
+      "event_id": "fixture_evt_24",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -897,7 +897,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_q_qg92l",
+      "event_id": "fixture_evt_25",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -920,7 +920,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_r_cb6r0",
+      "event_id": "fixture_evt_26",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -943,7 +943,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "DELIVERY_CONFIRMED",
-      "event_id": "evt_mwyzdd9s_s_0h26p",
+      "event_id": "fixture_evt_27",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -966,7 +966,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_t_hsxwb",
+      "event_id": "fixture_evt_28",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -989,7 +989,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "TASK_STATUS_CHANGE",
-      "event_id": "evt_mwyzdd9s_u_9hs11",
+      "event_id": "fixture_evt_29",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -1012,7 +1012,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "DELIVERY_CONFIRMED",
-      "event_id": "evt_mwyzdd9s_v_1tprh",
+      "event_id": "fixture_evt_30",
       "timestamp": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -1035,7 +1035,7 @@
       "subtype": null,
       "previous_attempt_ref": null,
       "event_type": "HANDOFF",
-      "event_id": "evt_mwyzdd9s_w_v5ubc",
+      "event_id": "fixture_evt_31",
       "timestamp": "2026-01-01T00:00:00.000Z"
     }
   ],
