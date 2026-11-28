@@ -25,18 +25,25 @@ export function criticalChain(dependencies, depths) {
   return chain;
 }
 
+function sameRound(entry, rollback) {
+  // 新记录带回退轮次标识；旧记录没有该字段时退回按时间匹配。
+  if (rollback.rollbackId) return entry.rollbackId === rollback.rollbackId;
+  return entry.time === rollback.time;
+}
+
 export function rollbackCausality(runtime) {
   const latest = new Map();
   for (const [taskId, record] of Object.entries(runtime)) for (const note of record.notes ?? []) {
     if (note.action !== 'rollback') continue;
     const key = taskId;
     const current = latest.get(key);
-    if (!current || String(note.time) > String(current.time)) latest.set(key, {...note, taskId});
+    // 记录按时间顺序追加，时间相同也保留后出现的一轮。
+    if (!current || String(note.time) >= String(current.time)) latest.set(key, {...note, taskId});
   }
   return [...latest.values()].sort((a, b) => a.taskId.localeCompare(b.taskId)).map(note => ({
     taskId: note.taskId, checkpoint: note.test, target: note.target, time: note.time,
     invalidated: Object.entries(runtime).filter(([, item]) =>
-      item.notes?.some(entry => entry.action === 'invalidated' && entry.time === note.time))
+      item.notes?.some(entry => entry.action === 'invalidated' && sameRound(entry, note)))
       .map(([id]) => id).sort(),
   }));
 }

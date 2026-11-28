@@ -164,6 +164,63 @@ export function serialImplementationChain(tasks) {
     ? ordered.map(item => item.task.id) : [];
 }
 
+// 批次顺序：先排下游链最长的任务，让关键路径尽早开工；同深度按计划顺序，保证结果稳定。
+function downstreamPriority(plan, dependencies) {
+  const children = new Map(plan.tasks.map(task => [task.id, []]));
+  for (const task of plan.tasks) for (const parent of dependencies[task.id]) children.get(parent).push(task.id);
+  const heights = new Map();
+  function height(id) {
+    if (heights.has(id)) return heights.get(id);
+    heights.set(id, 0);
+    let value = 1;
+    for (const child of children.get(id)) value = Math.max(value, 1 + height(child));
+    heights.set(id, value);
+    return value;
+  }
+  const position = new Map(plan.tasks.map((task, index) => [task.id, index]));
+  return (a, b) => height(b) - height(a) || position.get(a) - position.get(b);
+}
+
+// 编排结果自校验：批次划分、依赖顺序与交付边必须互相一致，回退闭包和批次标注都以此为前提。
+export function validateArrangement(plan, arrangement) {
+  const tasks = new Map(plan.tasks.map(task => [task.id, task]));
+  check(Number.isInteger(arrangement?.capacity) && arrangement.capacity >= 1 && arrangement.capacity <= 8,
+    '执行批次的并行上限无效');
+  check(Array.isArray(arrangement.rounds) && arrangement.rounds.length > 0, '缺少执行批次');
+  const batchOf = new Map();
+  arrangement.rounds.forEach((batch, index) => {
+    check(Array.isArray(batch) && batch.length > 0 && batch.length <= arrangement.capacity,
+      '第 ' + (index + 1) + ' 批为空或超过并行上限');
+    for (const id of batch) {
+      check(tasks.has(id) && !batchOf.has(id), '批次中的任务编号重复或无效：' + id);
+      batchOf.set(id, index);
+    }
+  });
+  check(batchOf.size === tasks.size, '有任务未进入执行批次');
+  const dependencies = arrangement.dependencies;
+  check(dependencies && typeof dependencies === 'object' && !Array.isArray(dependencies), '缺少任务依赖');
+  for (const task of plan.tasks) {
+    const parents = dependencies[task.id];
+    check(Array.isArray(parents) && new Set(parents).size === parents.length,
+      task.id + ' 的前置任务重复或无效');
+    check(parents.every(id => tasks.has(id) && id !== task.id), task.id + ' 引用了无效或自身的前置任务');
+    check(parents.every(id => batchOf.get(id) < batchOf.get(task.id)), task.id + ' 的前置任务不在更早的批次');
+  }
+  check(Object.keys(dependencies).length === tasks.size, '任务依赖与任务清单不一致');
+  check(Array.isArray(arrangement.edges), '缺少交付边');
+  const covered = new Set();
+  for (const edge of arrangement.edges) {
+    check(tasks.has(edge?.from) && tasks.has(edge?.to) && present(edge.artifact) &&
+      dependencies[edge.to].includes(edge.from), '交付边与任务依赖不一致');
+    covered.add(edge.from + '>' + edge.to);
+  }
+  for (const task of plan.tasks) {
+    for (const parent of dependencies[task.id]) {
+      check(covered.has(parent + '>' + task.id), '前置任务缺少交付边：' + parent + ' → ' + task.id);
+    }
+  }
+}
+
 export function schedule(plan, capacity) {
   check(Number.isInteger(capacity) && capacity >= 1 && capacity <= 8, '并行上限须在 1 至 8 之间');
   validate(plan);
@@ -172,10 +229,10 @@ export function schedule(plan, capacity) {
     check(!producers.has(task.output), '交付物有多个生产任务：' + task.output);
     producers.set(task.output, task.id);
   }
+  // 依赖与交付边同源生成：编排补齐的前置也一定画出边，任务图、前置清单与执行门禁保持一致。
   const dependencies = {};
-  const edges = [];
+  const artifacts = new Map();
   for (const task of plan.tasks) {
-    dependencies[task.id] = [];
     const inputs = new Set(task.inputs);
     if (task.role === '测试' && !task.test) {
       for (const implementation of plan.tasks) {
@@ -185,29 +242,36 @@ export function schedule(plan, capacity) {
         }
       }
     }
+    const parents = new Map();
     for (const input of inputs) {
       const from = producers.get(input);
       check(from, task.id + ' 的输入缺少生产任务：' + input);
       check(from !== task.id, task.id + ' 依赖自己的交付物');
-      dependencies[task.id].push(from);
-      edges.push({from, to: task.id, artifact: input});
+      if (!parents.has(from)) parents.set(from, input);
     }
+    artifacts.set(task.id, parents);
+    dependencies[task.id] = [...parents.keys()];
   }
+  const edges = plan.tasks.flatMap(task => [...artifacts.get(task.id)]
+    .map(([from, artifact]) => ({from, to: task.id, artifact})));
+  const priority = downstreamPriority(plan, dependencies);
   const completed = new Set();
   const rounds = [];
   while (completed.size < plan.tasks.length) {
     const ready = plan.tasks.filter(task => !completed.has(task.id) &&
-      dependencies[task.id].every(id => completed.has(id)));
+      dependencies[task.id].every(id => completed.has(id))).map(task => task.id).sort(priority);
     check(ready.length > 0, '检测到循环依赖，剩余任务：' +
       plan.tasks.filter(task => !completed.has(task.id)).map(task => task.id).join('、'));
-    const batch = ready.slice(0, capacity).map(task => task.id);
+    const batch = ready.slice(0, capacity);
     rounds.push(batch);
     for (const id of batch) completed.add(id);
   }
+  const arrangement = {capacity, rounds, dependencies, edges};
+  validateArrangement(plan, arrangement);
   // 批次记录点：批次计算完成后写入，不插入计算中间。
   for (const task of plan.tasks) registerTaskMeta(task.id, task);
   recordEvent({event_type: EVENT_TYPES.BATCH_PLANNED,
     batch_ids: rounds.map((_, index) => 'B' + (index + 1)),
     evidence_ref: 'arrangement.rounds', actor: 'system'});
-  return {capacity, rounds, dependencies, edges};
+  return arrangement;
 }

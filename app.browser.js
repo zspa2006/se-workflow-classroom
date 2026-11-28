@@ -221,11 +221,22 @@
     };
   }
   function rollbackScope(target, arrangement2) {
-    const affected = /* @__PURE__ */ new Set([target]);
-    for (const id of arrangement2.rounds.flat()) {
-      if (arrangement2.dependencies[id].some((parent) => affected.has(parent))) affected.add(id);
+    const dependents = new Map(Object.keys(arrangement2.dependencies).map((id) => [id, []]));
+    for (const [id, parents] of Object.entries(arrangement2.dependencies)) {
+      for (const parent of parents) dependents.get(parent)?.push(id);
     }
-    return [...affected].slice(1);
+    const affected = /* @__PURE__ */ new Set();
+    const pending = [target];
+    while (pending.length) {
+      const id = pending.shift();
+      for (const child of dependents.get(id) ?? []) {
+        if (child === target || affected.has(child)) continue;
+        affected.add(child);
+        pending.push(child);
+      }
+    }
+    const rank = new Map(arrangement2.rounds.flat().map((id, index) => [id, index]));
+    return [...affected].sort((a, b) => (rank.get(a) ?? rank.size) - (rank.get(b) ?? rank.size) || (a < b ? -1 : a > b ? 1 : 0));
   }
   function rollbackTargets(task) {
     return task.test?.targets ?? (task.review ? [task.review.target] : []);
@@ -243,6 +254,7 @@
     const affected = rollbackScope(target, arrangement2);
     const updated = { ...runtime };
     const time = (/* @__PURE__ */ new Date()).toISOString();
+    const rollbackId = "RB-" + target + "-" + ((runtime[target]?.notes ?? []).filter((item) => item.action === "rollback").length + 1);
     function mark(id, status, action) {
       const previous = runtime[id] ?? { attempts: 0, notes: [] };
       updated[id] = { ...previous, status, notes: [...previous.notes, {
@@ -250,7 +262,8 @@
         action,
         note: note.trim(),
         test: checkpoint.id,
-        target
+        target,
+        rollbackId
       }] };
     }
     mark(target, "failed", "rollback");
@@ -1752,6 +1765,64 @@
     }
     check([...requirements].every((id) => covered.has(id) && tested.has(id)), "\u6BCF\u6761\u9700\u6C42\u90FD\u5E94\u6709\u975E\u6D4B\u8BD5\u4EFB\u52A1\u548C\u6D4B\u8BD5\u4EFB\u52A1\u8986\u76D6");
   }
+  function downstreamPriority(plan, dependencies) {
+    const children = new Map(plan.tasks.map((task) => [task.id, []]));
+    for (const task of plan.tasks) for (const parent of dependencies[task.id]) children.get(parent).push(task.id);
+    const heights = /* @__PURE__ */ new Map();
+    function height(id) {
+      if (heights.has(id)) return heights.get(id);
+      heights.set(id, 0);
+      let value = 1;
+      for (const child of children.get(id)) value = Math.max(value, 1 + height(child));
+      heights.set(id, value);
+      return value;
+    }
+    const position = new Map(plan.tasks.map((task, index) => [task.id, index]));
+    return (a, b) => height(b) - height(a) || position.get(a) - position.get(b);
+  }
+  function validateArrangement(plan, arrangement2) {
+    const tasks = new Map(plan.tasks.map((task) => [task.id, task]));
+    check(
+      Number.isInteger(arrangement2?.capacity) && arrangement2.capacity >= 1 && arrangement2.capacity <= 8,
+      "\u6267\u884C\u6279\u6B21\u7684\u5E76\u884C\u4E0A\u9650\u65E0\u6548"
+    );
+    check(Array.isArray(arrangement2.rounds) && arrangement2.rounds.length > 0, "\u7F3A\u5C11\u6267\u884C\u6279\u6B21");
+    const batchOf = /* @__PURE__ */ new Map();
+    arrangement2.rounds.forEach((batch, index) => {
+      check(
+        Array.isArray(batch) && batch.length > 0 && batch.length <= arrangement2.capacity,
+        "\u7B2C " + (index + 1) + " \u6279\u4E3A\u7A7A\u6216\u8D85\u8FC7\u5E76\u884C\u4E0A\u9650"
+      );
+      for (const id of batch) {
+        check(tasks.has(id) && !batchOf.has(id), "\u6279\u6B21\u4E2D\u7684\u4EFB\u52A1\u7F16\u53F7\u91CD\u590D\u6216\u65E0\u6548\uFF1A" + id);
+        batchOf.set(id, index);
+      }
+    });
+    check(batchOf.size === tasks.size, "\u6709\u4EFB\u52A1\u672A\u8FDB\u5165\u6267\u884C\u6279\u6B21");
+    const dependencies = arrangement2.dependencies;
+    check(dependencies && typeof dependencies === "object" && !Array.isArray(dependencies), "\u7F3A\u5C11\u4EFB\u52A1\u4F9D\u8D56");
+    for (const task of plan.tasks) {
+      const parents = dependencies[task.id];
+      check(
+        Array.isArray(parents) && new Set(parents).size === parents.length,
+        task.id + " \u7684\u524D\u7F6E\u4EFB\u52A1\u91CD\u590D\u6216\u65E0\u6548"
+      );
+      check(parents.every((id) => tasks.has(id) && id !== task.id), task.id + " \u5F15\u7528\u4E86\u65E0\u6548\u6216\u81EA\u8EAB\u7684\u524D\u7F6E\u4EFB\u52A1");
+      check(parents.every((id) => batchOf.get(id) < batchOf.get(task.id)), task.id + " \u7684\u524D\u7F6E\u4EFB\u52A1\u4E0D\u5728\u66F4\u65E9\u7684\u6279\u6B21");
+    }
+    check(Object.keys(dependencies).length === tasks.size, "\u4EFB\u52A1\u4F9D\u8D56\u4E0E\u4EFB\u52A1\u6E05\u5355\u4E0D\u4E00\u81F4");
+    check(Array.isArray(arrangement2.edges), "\u7F3A\u5C11\u4EA4\u4ED8\u8FB9");
+    const covered = /* @__PURE__ */ new Set();
+    for (const edge of arrangement2.edges) {
+      check(tasks.has(edge?.from) && tasks.has(edge?.to) && present(edge.artifact) && dependencies[edge.to].includes(edge.from), "\u4EA4\u4ED8\u8FB9\u4E0E\u4EFB\u52A1\u4F9D\u8D56\u4E0D\u4E00\u81F4");
+      covered.add(edge.from + ">" + edge.to);
+    }
+    for (const task of plan.tasks) {
+      for (const parent of dependencies[task.id]) {
+        check(covered.has(parent + ">" + task.id), "\u524D\u7F6E\u4EFB\u52A1\u7F3A\u5C11\u4EA4\u4ED8\u8FB9\uFF1A" + parent + " \u2192 " + task.id);
+      }
+    }
+  }
   function schedule(plan, capacity2) {
     check(Number.isInteger(capacity2) && capacity2 >= 1 && capacity2 <= 8, "\u5E76\u884C\u4E0A\u9650\u987B\u5728 1 \u81F3 8 \u4E4B\u95F4");
     validate(plan);
@@ -1761,9 +1832,8 @@
       producers.set(task.output, task.id);
     }
     const dependencies = {};
-    const edges = [];
+    const artifacts = /* @__PURE__ */ new Map();
     for (const task of plan.tasks) {
-      dependencies[task.id] = [];
       const inputs = new Set(task.inputs);
       if (task.role === "\u6D4B\u8BD5" && !task.test) {
         for (const implementation of plan.tasks) {
@@ -1772,23 +1842,29 @@
           }
         }
       }
+      const parents = /* @__PURE__ */ new Map();
       for (const input of inputs) {
         const from = producers.get(input);
         check(from, task.id + " \u7684\u8F93\u5165\u7F3A\u5C11\u751F\u4EA7\u4EFB\u52A1\uFF1A" + input);
         check(from !== task.id, task.id + " \u4F9D\u8D56\u81EA\u5DF1\u7684\u4EA4\u4ED8\u7269");
-        dependencies[task.id].push(from);
-        edges.push({ from, to: task.id, artifact: input });
+        if (!parents.has(from)) parents.set(from, input);
       }
+      artifacts.set(task.id, parents);
+      dependencies[task.id] = [...parents.keys()];
     }
+    const edges = plan.tasks.flatMap((task) => [...artifacts.get(task.id)].map(([from, artifact]) => ({ from, to: task.id, artifact })));
+    const priority = downstreamPriority(plan, dependencies);
     const completed = /* @__PURE__ */ new Set();
     const rounds = [];
     while (completed.size < plan.tasks.length) {
-      const ready = plan.tasks.filter((task) => !completed.has(task.id) && dependencies[task.id].every((id) => completed.has(id)));
+      const ready = plan.tasks.filter((task) => !completed.has(task.id) && dependencies[task.id].every((id) => completed.has(id))).map((task) => task.id).sort(priority);
       check(ready.length > 0, "\u68C0\u6D4B\u5230\u5FAA\u73AF\u4F9D\u8D56\uFF0C\u5269\u4F59\u4EFB\u52A1\uFF1A" + plan.tasks.filter((task) => !completed.has(task.id)).map((task) => task.id).join("\u3001"));
-      const batch = ready.slice(0, capacity2).map((task) => task.id);
+      const batch = ready.slice(0, capacity2);
       rounds.push(batch);
       for (const id of batch) completed.add(id);
     }
+    const arrangement2 = { capacity: capacity2, rounds, dependencies, edges };
+    validateArrangement(plan, arrangement2);
     for (const task of plan.tasks) registerTaskMeta(task.id, task);
     recordEvent({
       event_type: EVENT_TYPES.BATCH_PLANNED,
@@ -1796,7 +1872,7 @@
       evidence_ref: "arrangement.rounds",
       actor: "system"
     });
-    return { capacity: capacity2, rounds, dependencies, edges };
+    return arrangement2;
   }
 
   // pipeline.mjs
@@ -2053,20 +2129,24 @@
     }
     return chain;
   }
+  function sameRound(entry, rollback) {
+    if (rollback.rollbackId) return entry.rollbackId === rollback.rollbackId;
+    return entry.time === rollback.time;
+  }
   function rollbackCausality(runtime) {
     const latest = /* @__PURE__ */ new Map();
     for (const [taskId, record] of Object.entries(runtime)) for (const note of record.notes ?? []) {
       if (note.action !== "rollback") continue;
       const key = taskId;
       const current = latest.get(key);
-      if (!current || String(note.time) > String(current.time)) latest.set(key, { ...note, taskId });
+      if (!current || String(note.time) >= String(current.time)) latest.set(key, { ...note, taskId });
     }
     return [...latest.values()].sort((a, b) => a.taskId.localeCompare(b.taskId)).map((note) => ({
       taskId: note.taskId,
       checkpoint: note.test,
       target: note.target,
       time: note.time,
-      invalidated: Object.entries(runtime).filter(([, item]) => item.notes?.some((entry) => entry.action === "invalidated" && entry.time === note.time)).map(([id]) => id).sort()
+      invalidated: Object.entries(runtime).filter(([, item]) => item.notes?.some((entry) => entry.action === "invalidated" && sameRound(entry, note))).map(([id]) => id).sort()
     }));
   }
 

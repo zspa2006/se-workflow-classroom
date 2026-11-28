@@ -52,11 +52,24 @@ export function transition(id, action, note, runtime, arrangement) {
 }
 
 export function rollbackScope(target, arrangement) {
-  const affected = new Set([target]);
-  for (const id of arrangement.rounds.flat()) {
-    if (arrangement.dependencies[id].some(parent => affected.has(parent))) affected.add(id);
+  const dependents = new Map(Object.keys(arrangement.dependencies).map(id => [id, []]));
+  for (const [id, parents] of Object.entries(arrangement.dependencies)) {
+    for (const parent of parents) dependents.get(parent)?.push(id);
   }
-  return [...affected].slice(1);
+  const affected = new Set();
+  const pending = [target];
+  while (pending.length) {
+    const id = pending.shift();
+    for (const child of dependents.get(id) ?? []) {
+      if (child === target || affected.has(child)) continue;
+      affected.add(child);
+      pending.push(child);
+    }
+  }
+  // 按批次顺序给出受影响任务，便于逐批重验；不在批次内的任务排在最后。
+  const rank = new Map(arrangement.rounds.flat().map((id, index) => [id, index]));
+  return [...affected].sort((a, b) => (rank.get(a) ?? rank.size) - (rank.get(b) ?? rank.size) ||
+    (a < b ? -1 : a > b ? 1 : 0));
 }
 
 export function rollbackTargets(task) {
@@ -76,10 +89,14 @@ export function rollbackTask(checkpoint, target, note, runtime, arrangement) {
   const affected = rollbackScope(target, arrangement);
   const updated = {...runtime};
   const time = new Date().toISOString();
+  // 回退轮次标识由「目标 + 该目标已记录的轮次」派生：同一时刻的多轮回退也能区分，
+  // 且导出再导入后继续回退不会和历史记录撞号。
+  const rollbackId = 'RB-' + target + '-' +
+    ((runtime[target]?.notes ?? []).filter(item => item.action === 'rollback').length + 1);
   function mark(id, status, action) {
     const previous = runtime[id] ?? {attempts: 0, notes: []};
     updated[id] = {...previous, status, notes: [...previous.notes, {
-      time, action, note: note.trim(), test: checkpoint.id, target,
+      time, action, note: note.trim(), test: checkpoint.id, target, rollbackId,
     }]};
   }
   mark(target, 'failed', 'rollback');

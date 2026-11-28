@@ -167,7 +167,8 @@
             "action": "rollback",
             "note": "负数输入未被拒绝",
             "test": "T3",
-            "target": "T12"
+            "target": "T12",
+            "rollbackId": "RB-T12-1"
           },
           {
             "action": "retry",
@@ -200,7 +201,8 @@
             "action": "invalidated",
             "note": "负数输入未被拒绝",
             "test": "T3",
-            "target": "T12"
+            "target": "T12",
+            "rollbackId": "RB-T12-1"
           },
           {
             "action": "start",
@@ -233,7 +235,8 @@
             "action": "invalidated",
             "note": "负数输入未被拒绝",
             "test": "T3",
-            "target": "T12"
+            "target": "T12",
+            "rollbackId": "RB-T12-1"
           },
           {
             "action": "start",
@@ -266,7 +269,8 @@
             "action": "invalidated",
             "note": "负数输入未被拒绝",
             "test": "T3",
-            "target": "T12"
+            "target": "T12",
+            "rollbackId": "RB-T12-1"
           },
           {
             "action": "start",
