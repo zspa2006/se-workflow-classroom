@@ -8,145 +8,358 @@
   <style>
     [hidden] { display: none !important; }
     .startup {
-      max-width: 46rem;
-      margin: 24px auto;
-      padding: 26px;
-      border: 1px solid #d6e2da;
+      max-width: 44rem;
+      margin: 48px auto;
+      padding: 28px;
+      border: 1px solid #dde5ef;
       border-radius: 14px;
-      background: #f3f8f4;
-      color: #132922;
-      font: 16px/1.65 "Microsoft YaHei UI", sans-serif;
+      background: #ffffff;
+      color: #1e293b;
+      font: 15px/1.65 "PingFang SC", "Microsoft YaHei UI", sans-serif;
     }
-    .startup h2 { font-size: 22px; margin: 0; }
+    .startup h2 { font-size: 20px; margin: 0 0 8px; }
+    .startup p { margin: 0 0 18px; color: #64748b; }
     .startup a {
       display: inline-block;
-      padding: 8px 15px;
-      border-radius: 8px;
-      background: #0b654c;
+      padding: 9px 16px;
+      border-radius: 10px;
+      background: #4f46e5;
       color: #fff;
+      font-weight: 600;
       text-decoration: none;
     }
   </style>
 </head>
 <body>
   <header class="mast">
-    <div class="brand"><span class="mark" aria-hidden="true">↳</span> SE Workflow</div>
-    <div class="mast-actions" id="mast-actions" hidden>
-      <div class="connection" id="connection" role="status">正在读取 DeepSeek API 配置</div>
-      <button id="open-activity" type="button" aria-haspopup="dialog">运行记录 <span id="event-count">0</span></button>
-      <button id="configure" type="button">DeepSeek 密钥</button>
+    <div class="mast-inner">
+      <div class="brand-group">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="1.5" y="1.75" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/>
+              <rect x="10" y="1.75" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/>
+              <rect x="5.75" y="9.75" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M3.75 6.25V7.75C3.75 8.3 4.2 8.75 4.75 8.75H8M12.25 6.25V7.75C12.25 8.3 11.8 8.75 11.25 8.75H8M8 8.75V9.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <div class="brand-titles">
+            <h1 class="brand-name">SE Workflow</h1>
+            <span class="brand-sep" aria-hidden="true">/</span>
+            <span class="brand-subtitle">软件工程工作台 · 课堂作业 1–3</span>
+          </div>
+        </div>
+        <nav class="workspace-nav soft-toggle" id="workspace-nav" aria-label="工作区" hidden>
+          <span class="pill-thumb" aria-hidden="true"></span>
+          <button id="workspace-plan" type="button" aria-controls="workspace" aria-pressed="true">规格与编排</button>
+          <button id="workspace-discussion" type="button" aria-controls="discussion-panel" aria-pressed="false">讨论与共识</button>
+        </nav>
+      </div>
+      <div class="mast-actions" id="mast-actions" hidden>
+        <button type="button" id="toggle-input" aria-expanded="true" aria-controls="left-collapse">
+          <svg class="collapse-chevron" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span id="toggle-input-label">收起左栏</span>
+        </button>
+        <div class="connection" id="connection" role="status">正在读取 DeepSeek API 配置</div>
+        <button id="configure" type="button">
+          <svg class="btn-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="5.5" cy="9.5" r="2.75" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M7.6 7.4L13.5 1.5M11.4 3.6L13.2 5.4M9.6 5.4L11 6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span>DeepSeek 密钥</span>
+        </button>
+        <button id="open-activity" type="button" aria-haspopup="dialog">
+          <svg class="btn-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M1.75 8H4.25L6.25 3.5L9.5 12.5L11.75 8H14.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>运行记录</span>
+          <span id="event-count">0</span>
+        </button>
+      </div>
     </div>
   </header>
-  <main>
-    <div class="hero">
-      <div><p class="eyebrow">软件工程 / 课堂作业 1 · 2 · 3</p><h1>软件工程工作台</h1>
-      <p class="subtitle">讨论提炼、规格产物与任务交互，全程可追踪。</p></div>
-      <nav class="flow" id="flow" aria-label="工作流步骤" hidden>
-        <button id="go-spec" type="button">Design Spec</button>
-        <button id="go-tasks" type="button">PM Agent</button>
-        <button id="go-graph" type="button">任务编排</button>
-      </nav>
-    </div>
+
+  <main class="app-main">
     <section id="startup" class="startup" aria-labelledby="startup-title">
       <h2 id="startup-title">打开工作台</h2>
       <p role="status">正在加载工作台。请先完整解压，确保网页和配套文件在同一个文件夹。</p>
       <a href="http://127.0.0.1:8765/">已运行 Start.cmd，打开工作台</a>
     </section>
-    <nav class="workspace-nav" id="workspace-nav" aria-label="工作区" hidden>
-      <button id="workspace-plan" type="button" aria-controls="workspace" aria-pressed="true">规格与编排</button>
-      <button id="workspace-discussion" type="button" aria-controls="discussion-panel" aria-pressed="false">讨论与共识</button>
-    </nav>
-    <section class="discussion-panel" id="discussion-panel" aria-labelledby="discussion-title" hidden>
-      <h2 id="discussion-title">讨论提炼与共识确认</h2>
-      <p class="hint">讨论提炼 Agent 整理原文证据，由参加讨论的人表达立场，负责人登记。</p>
-      <p class="hint">粘贴带发言人名称的讨论。提炼要点后起草提案，逐人登记立场，全员同意后转入产品想法。</p>
-      <label for="transcript">讨论原文</label>
-      <textarea id="transcript" maxlength="4000" rows="5" placeholder="产品同学：……&#10;前端 Agent：……"></textarea>
-      <div class="execution-actions">
-        <button id="discussion-example" type="button">填入讨论示例</button>
-        <button id="extract-discussion" type="button">提炼讨论主线</button>
-      </div>
-      <p id="discussion-error" class="error" role="alert"></p>
-      <div id="discussion-result"></div>
-    </section>
-    <div id="workspace" class="workspace" hidden>
-      <section class="panel input-panel" aria-labelledby="input-title">
-        <div class="panel-head"><h2 id="input-title">工作流输入</h2><button type="button" id="toggle-input" aria-expanded="true" aria-controls="input-body">收起输入</button></div>
-        <div class="input-body" id="input-body">
-          <label for="input-mode">输入起点</label>
-          <select id="input-mode">
-            <option value="idea">从产品想法开始</option>
-            <option value="design">从已有设计规格开始</option>
-          </select>
-          <label for="example">演示案例</label>
-          <select id="example"></select>
-          <label id="spec-label" for="spec">产品想法</label>
-          <textarea id="spec" maxlength="4000" spellcheck="false"></textarea>
-          <div class="editor-foot"><span id="count"></span><label class="upload">导入 TXT / MD<input id="file" type="file" accept=".txt,.md,text/plain,text/markdown"></label></div>
-          <label for="capacity">每批并行上限</label>
-          <select id="capacity"></select>
-          <button id="run" class="primary" type="button">运行工作流 <span aria-hidden="true">↗</span></button>
-          <p class="request-note">输入及各阶段产物会发送至 DeepSeek API 以生成后续产物。</p>
-          <p id="service-help" class="request-note" hidden>在线生成需要启动原版目录里的 Start.cmd。启动后可在本页重试，或<a href="http://127.0.0.1:8765/">打开服务版工作台</a>。</p>
-          <label class="replay upload">导入 DeepSeek 结果 JSON<input id="replay" type="file" accept=".json,application/json"></label>
-          <p id="input-error" class="error" role="alert"></p>
+
+    <section class="discussion-panel panel" id="discussion-panel" aria-labelledby="discussion-title" hidden>
+      <div class="panel-head">
+        <div>
+          <h2 id="discussion-title">讨论提炼与共识确认</h2>
+          <p class="panel-sub">粘贴带发言人名称的讨论记录，提炼原文证据要点后起草提案、逐人登记立场，全员同意后转入产品想法。</p>
         </div>
-      </section>
-      <section class="panel result-panel" aria-labelledby="result-title">
+      </div>
+      <div class="discussion-body">
+        <div class="discussion-composer">
+          <div class="field-head">
+            <label for="transcript">讨论原文</label>
+            <span class="field-tip">按发言人换行记录，提取时自动校验行号与逐字引文</span>
+          </div>
+          <textarea id="transcript" maxlength="4000" rows="5" placeholder="产品同学：……&#10;前端 Agent：……"></textarea>
+          <div class="execution-actions">
+            <button id="discussion-example" type="button">填入讨论示例</button>
+            <button id="extract-discussion" class="btn-solid" type="button">提炼讨论主线</button>
+          </div>
+          <p id="discussion-error" class="error" role="alert"></p>
+        </div>
+        <div id="discussion-result"></div>
+      </div>
+    </section>
+
+    <div id="workspace" class="workspace holy-grail" hidden>
+      <!-- 圣杯左栏：输入与步骤跳转 -->
+      <aside class="panel rail-left input-panel" aria-labelledby="input-title">
         <div class="panel-head">
-          <div><h2 id="result-title" tabindex="-1">工作流输出</h2><div class="provenance" id="provenance"></div></div>
+          <div class="input-head-title">
+            <h2 id="input-title">工作流输入</h2>
+            <span id="input-summary" class="input-summary" hidden></span>
+          </div>
+          <span class="rail-tag">左栏 · 配置区</span>
+        </div>
+        <div class="collapse-shell" id="left-collapse">
+          <div class="collapse-inner">
+            <div class="input-body" id="input-body">
+              <nav class="flow" id="flow" aria-label="工作流步骤" hidden>
+                <button id="go-spec" type="button"><span class="flow-num">01</span>Spec</button>
+                <span class="flow-chevron" aria-hidden="true">›</span>
+                <button id="go-tasks" type="button"><span class="flow-num">02</span>PM</button>
+                <span class="flow-chevron" aria-hidden="true">›</span>
+                <button id="go-graph" type="button"><span class="flow-num">03</span>编排</button>
+              </nav>
+
+              <div class="input-grid">
+                <div class="field">
+                  <label for="input-mode">输入起点</label>
+                  <select id="input-mode">
+                    <option value="idea">从产品想法开始</option>
+                    <option value="design">从已有设计规格开始</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="capacity">每批并行</label>
+                  <select id="capacity" aria-label="每批并行上限"></select>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="example">演示案例</label>
+                <select id="example"></select>
+              </div>
+
+              <div class="field">
+                <label id="spec-label" for="spec">产品想法</label>
+                <textarea id="spec" maxlength="4000" spellcheck="false"></textarea>
+                <div class="editor-foot">
+                  <span id="count"></span>
+                  <label class="upload">
+                    <svg class="btn-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M8 10.5V2.5M8 2.5L5 5.5M8 2.5L11 5.5M2.5 11.5V13.5H13.5V11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>导入 TXT / MD</span>
+                    <input id="file" type="file" accept=".txt,.md,text/plain,text/markdown">
+                  </label>
+                </div>
+              </div>
+
+              <button id="run" class="primary" type="button">
+                <span id="run-label">运行工作流</span>
+                <svg class="btn-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3.5 8H12.5M12.5 8L8.5 4M12.5 8L8.5 12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <p class="request-note">输入及各阶段产物会发送至 DeepSeek API 以生成后续产物。</p>
+              <p id="service-help" class="request-note service-help" hidden>在线生成需要启动原版目录里的 Start.cmd。启动后可在本页重试，或<a href="http://127.0.0.1:8765/">打开服务版工作台</a>。</p>
+
+              <div class="input-divider"><span>离线回放</span></div>
+              <label class="replay upload replay-btn">
+                <svg class="btn-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 10.5V13.5H13V10.5M8 2.5V10M8 10L5 7M8 10L11 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>导入 DeepSeek 结果 JSON（离线回放）</span>
+                <input id="replay" type="file" accept=".json,application/json">
+              </label>
+              <p id="input-error" class="error" role="alert"></p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 圣杯中栏：弹性主舞台 -->
+      <section class="panel result-panel stage-center" aria-labelledby="result-title">
+        <div class="panel-head">
+          <div class="result-title-group">
+            <h2 id="result-title" tabindex="-1">工作流输出</h2>
+            <div class="provenance" id="provenance"></div>
+          </div>
           <div class="exports" id="exports" hidden>
-            <button id="gen-code" type="button">查看代码示例</button>
-            <button id="report" type="button">导出计划 Markdown</button>
+            <button id="gen-code" type="button">
+              <svg class="btn-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M5.5 4.5L2 8L5.5 11.5M10.5 4.5L14 8L10.5 11.5M9 3L7 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>代码示例</span>
+            </button>
+            <span class="exports-sep" aria-hidden="true"></span>
+            <button id="report" type="button">导出计划 MD</button>
             <button id="download" type="button">导出 JSON</button>
             <button id="export-task-md" type="button">导出 task.md</button>
           </div>
         </div>
+
         <section id="chain" class="chain" aria-label="作业产物流程" hidden>
           <nav id="chain-steps" class="chain-steps" aria-label="查看各阶段产物"></nav>
-          <div id="chain-content" class="chain-content" tabindex="-1"></div>
+          <div id="chain-drawer" class="chain-drawer collapse-shell is-collapsed" aria-hidden="true">
+            <div class="collapse-inner">
+              <div class="chain-drawer-bar">
+                <span id="chain-drawer-label" class="chain-drawer-label">阶段产物详情</span>
+                <button id="toggle-chain" type="button" class="ghost-btn">收起详情</button>
+              </div>
+              <div id="chain-content" class="chain-content" tabindex="-1"></div>
+            </div>
+          </div>
         </section>
+
         <div id="notice" class="notice" role="status">
-          <div class="empty-mark" aria-hidden="true">↳</div>
+          <div class="empty-mark" aria-hidden="true">
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <rect x="3.5" y="5" width="8.5" height="8.5" rx="2" stroke="currentColor" stroke-width="1.7"/>
+              <rect x="20" y="5" width="8.5" height="8.5" rx="2" stroke="currentColor" stroke-width="1.7"/>
+              <rect x="11.75" y="18.5" width="8.5" height="8.5" rx="2" stroke="currentColor" stroke-width="1.7"/>
+              <path d="M12 9.25H20M7.75 13.5V16C7.75 17.38 8.87 18.5 10.25 18.5H16M24.25 13.5V16C24.25 17.38 23.13 18.5 21.75 18.5H16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+          </div>
           <strong id="notice-title">等待运行工作流</strong>
           <p id="notice-body">选择案例或输入规格，查看任务分解和依赖关系。</p>
+          <div class="empty-hints" aria-hidden="true">
+            <span>01 输入想法或规格</span>
+            <span>02 生成需求与设计</span>
+            <span>03 编排依赖与批次</span>
+            <span>04 执行与回退追踪</span>
+          </div>
         </div>
+
         <div id="results" hidden>
-          <div class="metrics" id="metrics"></div>
-          <div class="tabs" aria-label="输出视图">
-            <button type="button" data-view="tasks" aria-pressed="true">任务分解</button>
-            <button type="button" data-view="graph" aria-pressed="false">依赖图</button>
-            <button type="button" data-view="rounds" aria-pressed="false">执行批次</button>
-            <button type="button" data-view="execution" aria-pressed="false">执行与交互</button>
+          <div class="metrics" id="metrics" hidden></div>
+          <div class="tabs-wrap">
+            <div class="tabs pill-tabs-track" aria-label="输出视图">
+              <span class="pill-thumb" aria-hidden="true"></span>
+              <button type="button" data-view="tasks" aria-pressed="true">任务分解</button>
+              <button type="button" data-view="graph" aria-pressed="false">依赖图</button>
+              <button type="button" data-view="rounds" aria-pressed="false">执行批次</button>
+              <button type="button" data-view="execution" aria-pressed="false">执行与交互</button>
+            </div>
           </div>
           <div id="view"></div>
         </div>
       </section>
+
+      <!-- 圣杯右栏：顶部齐平左/中栏，图例 → 关键路径与需求速览 → 运行摘要/贴回节点检视 -->
+      <aside class="rail-right" id="context-rail" aria-label="状态图例、关键路径与节点检视">
+        <div class="rail-box" id="rail-legend-card">
+          <div class="rail-box-title">
+            <span>六态非颜色编码图例</span>
+            <span class="rail-submeta">16×8 零位移</span>
+          </div>
+          <div id="legend-slot"></div>
+        </div>
+
+        <div class="rail-box" id="rail-overview-card">
+          <div class="rail-box-title">
+            <span>关键路径与需求速览</span>
+            <span class="provenance-chip" id="rail-chain-chip">等待运行</span>
+          </div>
+          <div id="rail-overview-slot">
+            <p class="inspector-tip">运行工作流或导入结果后，将在此展示最长依赖关键链与需求覆盖追溯。</p>
+          </div>
+        </div>
+
+        <div class="rail-box rail-context-card" id="right-context-card">
+          <div class="rail-box-title">
+            <span id="right-ctx-heading">最近运行与交互摘要</span>
+            <span class="provenance-chip" id="right-ctx-chip">实时同步</span>
+          </div>
+          <div id="right-ctx-body">
+            <div id="rail-inspector-slot" hidden></div>
+            <div id="rail-activity-slot">
+              <ul class="activity-mini" id="rail-activity-list"></ul>
+              <p class="inspector-tip" id="rail-activity-tip">运行工作流或登记立场后，近期记录将同步至此；在「依赖图」中点击节点将在旁弹出可拖动悬浮窗。</p>
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
   </main>
+
+  <footer class="app-foot" id="app-foot" hidden>
+    <div class="foot-inner">
+      <span>SE Workflow · 软件工程课堂工作台 · 从讨论提炼、规格生成到依赖编排与节点交付全过程可追踪</span>
+      <span class="foot-shortcuts">
+        <span>画布缩放 <kbd class="kbd">Ctrl + 滚轮</kbd></span>
+        <span>拖拽平移 <kbd class="kbd">Space + 拖拽</kbd></span>
+      </span>
+    </div>
+  </footer>
+
   <dialog id="activity-dialog" aria-labelledby="activity-title">
     <div class="activity-head">
-      <div><h2 id="activity-title">运行与交互记录</h2><p class="hint">查看生成校验、共识确认、交付和回退。</p></div>
+      <div>
+        <h2 id="activity-title">运行与交互记录</h2>
+        <p class="hint">查看生成校验、共识确认、交付和回退。</p>
+      </div>
       <form method="dialog"><button type="submit">关闭</button></form>
     </div>
     <ol id="activity" aria-live="polite"></ol>
     <p id="activity-empty" class="hint">运行工作流或登记讨论立场后，记录会显示在这里。</p>
     <div class="dialog-actions"><button id="export-activity" type="button">导出运行与交互记录</button></div>
   </dialog>
+
   <dialog id="key-dialog" aria-labelledby="key-title">
     <form id="key-form">
-      <h2 id="key-title">设置 DeepSeek API 密钥</h2>
+      <div class="dialog-head">
+        <h2 id="key-title">设置 DeepSeek API 密钥</h2>
+      </div>
       <p class="hint">密钥只在当前页面使用。关闭或刷新页面后需重新填写。</p>
       <label for="key-input">API 密钥</label>
       <input id="key-input" type="password" required maxlength="512" autocomplete="off" spellcheck="false" autofocus>
       <p id="key-error" class="error" role="alert"></p>
       <div class="dialog-actions">
-        <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">获取 DeepSeek API 密钥 ↗</a>
+        <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">获取 DeepSeek API 密钥</a>
         <button id="cancel-key" type="button">取消</button>
         <button id="save-key" type="submit">使用密钥</button>
       </div>
     </form>
   </dialog>
+
+  <dialog id="code-dialog" aria-labelledby="code-dialog-title">
+    <div class="dialog-head">
+      <div class="code-dialog-title-group">
+        <h2 id="code-dialog-title">后端代码示例</h2>
+        <span class="code-badge">内置展示片段 · 待适配与验证</span>
+      </div>
+      <form method="dialog"><button id="close-code-btn" type="submit">关闭</button></form>
+    </div>
+    <div class="code-viewer" id="code-viewer">
+      <pre id="code-pre"><code id="code-content"></code></pre>
+    </div>
+  </dialog>
+
+  <aside class="floating-inspector" id="floating-inspector" role="dialog" aria-modal="false" aria-label="节点详情悬浮窗" hidden>
+    <div class="floating-insp-head" id="floating-insp-drag">
+      <div class="floating-insp-title">
+        <span class="drag-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <span id="float-insp-heading">节点检视</span>
+        <span class="provenance-chip">可拖动</span>
+      </div>
+      <button type="button" class="floating-close" id="float-insp-close" title="关闭并贴回右下原位" aria-label="关闭悬浮窗并贴回右下">×</button>
+    </div>
+    <div class="floating-insp-body" id="float-insp-body"></div>
+  </aside>
+
   <script src="./app.browser.js"></script>
 </body>
 </html>
